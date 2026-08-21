@@ -78,12 +78,21 @@ def action_decode(code):
     return int(i), int(r2)
 
 
+def r_next(r):
+    """The next message level after r in R_LEVELS (adjacent refinement)."""
+    for r2 in R_LEVELS:
+        if r2 > r:
+            return r2
+    return None
+
+
 class StateSpace:
-    def __init__(self, model, quantizers, prior_log_odds=0.0):
+    def __init__(self, model, quantizers, prior_log_odds=0.0, cross_level=True):
         self.model = model
         self.N = model.N
         self.quants = list(quantizers)
         self.prior_log_odds = float(prior_log_odds)
+        self.cross_level = bool(cross_level)
         self.powers = BASE ** np.arange(self.N)          # (N,)
         self.n_states = int(BASE ** self.N)
 
@@ -99,16 +108,24 @@ class StateSpace:
                 if r > 0:
                     self.llr_tab[i, z] = self.quants[i].llr[r][m]
 
-        # per-UAV, per-z legal refinement actions (cross-level allowed, §25)
+        # per-UAV, per-z legal refinement actions
         #   actions[i][z] = [ (r2, c_a, [(delta, logP1c, logP0c), ...]), ... ]
         # with delta = (z2 - z) * BASE^i  (child state index offset)
+        #
+        # cross_level=True : all r -> r' > r (0->1, 0->2, 0->4, 1->2, 1->4, 2->4)
+        # cross_level=False: adjacent-only (0->1, 1->2, 2->4)  [MVS-A-R1 main]
+        # Note (§5 of the audit): with b_h=0 / perfect channel the cross-level
+        # action is weakly dominated by adjacent refinement in the *exact* DP,
+        # but it structurally biases finite-depth lookahead — hence MVS-A-R1
+        # freezes the adjacent-only family.
         self.actions = [[[] for _ in range(BASE)] for _ in range(self.N)]
         for i in range(self.N):
             q = self.quants[i]
             for z in range(BASE):
                 r, m = z_decode(z)
-                for r2 in R_LEVELS:
-                    if r2 <= r:
+                r2s = R_LEVELS if self.cross_level else (r_next(r),)
+                for r2 in r2s:
+                    if r2 is None or r2 <= r:
                         continue
                     c_a = r2 - r                            # payload bits, §16.1
                     children = []

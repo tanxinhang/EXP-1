@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from .state import R_LEVELS, action_code, r_next
+
 
 def _llr_matrix(ss, L, level):
     """(n, N) message-LLR of each UAV at `level` for LLR samples L."""
@@ -173,3 +175,86 @@ def baseline_sweeps(ss):
         "B9_GlobalFixed":  ("eta_s", [0.5, 1.0, 2.0, 3.0, 4.0, 6.0], baseline_global_fixed),
         "B11_StaticProg":  ("eta_s", [0.5, 1.0, 2.0, 3.0, 4.0, 6.0], baseline_static_progressive),
     }
+
+
+# -------------------------------------------- exact table-policy baselines
+# Fair realizable baselines are deterministic functions of the evidence state,
+# so they admit exact table policies over the finite state space (audit §8).
+# Builders return a policy array: state idx -> action code (0 = STOP).
+
+def build_global_fixed_policy(ss, eta_s):
+    """B9 exact table policy: synchronous rounds 1->2->4, implemented as
+    sequential single-UAV refinements with no mid-round stop checks; STOP when
+    |Omega| >= eta_s (checked only at uniform-level states)."""
+    N = ss.N
+    policy = np.zeros(ss.n_states, dtype=np.int16)
+    r_of = ss.r_of
+    zcodes = ss.zcodes
+    for idx in range(ss.n_states):
+        rs = r_of[np.arange(N), zcodes[idx]]
+        om = ss.omega[idx]
+        if np.all(rs == rs[0]):
+            r = int(rs[0])
+            if r >= R_LEVELS[-1] or abs(om) >= eta_s:
+                policy[idx] = 0                       # STOP
+            else:
+                policy[idx] = action_code(0, r_next(r))
+        else:
+            rmin = int(rs.min())
+            r2 = r_next(rmin)
+            for i in range(N):
+                if rs[i] == rmin:
+                    policy[idx] = action_code(i, r2)
+                    break
+    return policy
+
+
+def build_static_progressive_policy(ss, eta_s):
+    """B11 exact table policy: fixed SNR order, ladder 1->2->4 per UAV,
+    |Omega| >= eta_s early stopping.  No realized-evidence adaptation."""
+    N = ss.N
+    order = list(np.argsort(-ss.model.gamma_db))
+    policy = np.zeros(ss.n_states, dtype=np.int16)
+    r_of = ss.r_of
+    zcodes = ss.zcodes
+    for idx in range(ss.n_states):
+        rs = r_of[np.arange(N), zcodes[idx]]
+        if abs(ss.omega[idx]) >= eta_s:
+            policy[idx] = 0
+            continue
+        for i in order:
+            if rs[i] < R_LEVELS[-1]:
+                policy[idx] = action_code(i, r_next(int(rs[i])))
+                break
+    return policy
+
+
+def build_seeded_pots_policy(ss, eta_s):
+    """1-bit-seeded P-OTS exact table policy (audit §6, fair baseline):
+    stage 1: every UAV pays 1 bit (0->1, no stop checks);
+    stage 2: owner orders UAVs by the *paid* realized |ell^1_i| and runs the
+    ladder 1->2->4 with |Omega| >= eta_s early stopping."""
+    N = ss.N
+    policy = np.zeros(ss.n_states, dtype=np.int16)
+    r_of = ss.r_of
+    zcodes = ss.zcodes
+    llr_tab = ss.llr_tab
+    for idx in range(ss.n_states):
+        rs = r_of[np.arange(N), zcodes[idx]]
+        om = ss.omega[idx]
+        if (rs == 0).any():                           # seeding stage
+            for i in range(N):
+                if rs[i] == 0:
+                    policy[idx] = action_code(i, 1)
+                    break
+            continue
+        l1 = np.abs([llr_tab[i, int(zcodes[idx, i])] for i in range(N)])
+        order = np.argsort(-l1, kind="stable")
+        if abs(om) >= eta_s:
+            policy[idx] = 0
+            continue
+        for i in order:
+            if rs[i] < R_LEVELS[-1]:
+                policy[idx] = action_code(i, r_next(int(rs[i])))
+                break
+    return policy

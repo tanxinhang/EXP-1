@@ -17,16 +17,16 @@ baselines  : B0..B11 reference and mechanism baselines            [§49-§53]
 gates      : G0/G1/G2 gate checks                                 [§34-§36, §66]
 """
 
-from . import model, quantizer, state, fusion, dp, opef, mc, baselines, gates
+from . import model, quantizer, state, fusion, dp, opef, mc, baselines, gates, eval_exact
 from .model import GaussianDetectorModel
 from .quantizer import NestedQuantizer
 from .state import StateSpace, R_LEVELS, RMAX, z_code, z_decode, action_code, action_decode
 from .dp import ExactDP, SolverBase
 from .opef import OPEF1, OPEF2, OPEF3
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
-    "model", "quantizer", "state", "fusion", "dp", "opef", "mc", "baselines", "gates",
+    "model", "quantizer", "state", "fusion", "dp", "opef", "mc", "baselines", "gates", "eval_exact",
     "GaussianDetectorModel", "NestedQuantizer", "StateSpace",
     "R_LEVELS", "RMAX", "z_code", "z_decode", "action_code", "action_decode",
     "ExactDP", "SolverBase", "OPEF1", "OPEF2", "OPEF3",
