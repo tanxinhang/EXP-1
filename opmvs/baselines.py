@@ -232,13 +232,15 @@ def build_static_progressive_policy(ss, eta_s):
 def build_seeded_pots_policy(ss, eta_s):
     """1-bit-seeded P-OTS exact table policy (audit §6, fair baseline):
     stage 1: every UAV pays 1 bit (0->1, no stop checks);
-    stage 2: owner orders UAVs by the *paid* realized |ell^1_i| and runs the
-    ladder 1->2->4 with |Omega| >= eta_s early stopping."""
+    stage 2: owner orders UAVs by the *paid* realized |ell^1_i| — the level-1
+    ancestor cell is used even after refinement (fix R1.1-A of adcice/002.md:
+    the ordering must be frozen at the seeded 1-bit evidence, not re-derived
+    from higher-precision messages) — and runs the ladder 1->2->4 with
+    |Omega| >= eta_s early stopping."""
     N = ss.N
     policy = np.zeros(ss.n_states, dtype=np.int16)
     r_of = ss.r_of
     zcodes = ss.zcodes
-    llr_tab = ss.llr_tab
     for idx in range(ss.n_states):
         rs = r_of[np.arange(N), zcodes[idx]]
         om = ss.omega[idx]
@@ -248,7 +250,16 @@ def build_seeded_pots_policy(ss, eta_s):
                     policy[idx] = action_code(i, 1)
                     break
             continue
-        l1 = np.abs([llr_tab[i, int(zcodes[idx, i])] for i in range(N)])
+        # level-1 ancestor cell of each UAV's current cell, then |ell^(1)| (frozen order)
+        l1 = np.empty(N)
+        for i in range(N):
+            r = int(rs[i])
+            m = int(zcodes[idx, i])
+            # z_code: r=1 -> 1+m; r=2 -> 3+m; r=4 -> 7+m  =>  m = z - offset
+            off = {1: 1, 2: 3, 4: 7}[r]
+            m_cell = m - off
+            m1 = m_cell >> (r - 1)                    # level-1 ancestor
+            l1[i] = abs(ss.quants[i].llr[1][m1])
         order = np.argsort(-l1, kind="stable")
         if abs(om) >= eta_s:
             policy[idx] = 0

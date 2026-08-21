@@ -11,7 +11,7 @@
 | P0: 只扫 μ_M=μ_F | 参数化 (s, η)：μ_M=s, μ_F=s·e^η，η=log(μ_F/μ_M) 即自然判决阈值 |
 | P0: G2 '同 μ bit gap' 不成立 | G2 改为 Lagrangian J=E[B]+μ_M P_M+μ_F P_FA，验证 J_OPEF ≥ J_DP |
 | P0: cross-level 对有限深度 lookahead 的偏置 | MVS-A 主版冻结 adjacent-only (0→1,1→2,2→4)；2×2 实验量化 |
-| P1: '信息负收益' 解释错误 | 改为：Bayes 风险凹 + posterior martingale ⇒ 额外信息不减期望风险；停止只因 c_a>0 或价值恰为 0 |
+| P1: '信息负收益' 解释错误 | 改为：Bayes 风险凹 + posterior martingale ⇒ 额外信息**不会增加**最优期望 Bayes 风险；停止只因 c_a>0 或价值恰为 0 |
 | P1: G1 自洽性不足 | G1a 独立不变量 + G1b J(π_DP)(x0)=V*(x0) 前向/后向独立核算 |
 | P1: P-OTS 免费 oracle 排序 | POTS/OTSF-oracle 降为诊断；新增公平基线 1-bit-seeded P-OTS；B9/B11 为关键公平基线 |
 | P1: MC 统计口径 | 主结果改为精确前向概率传播（无 MC）；MC 仅用于 oracle 基线 |
@@ -251,7 +251,7 @@
 
 1. **目标函数—评价一致性修复有效（P0-1）**：改为双乘子 (μ_M, μ_F) 与策略自身终端判决后，Exact DP 的自然工作点可覆盖 P_FA 0.02–0.12 区间；在 s=4096、η=1 时 DP 的 P_D@P_FA=0.05 = 0.8474 接近 P_D,max = 0.8482。v0 的 'μ→∞ ceiling'（0.8335）被确认为 Bayes/NP criterion mismatch 的症状，而非 O-PEF 机制固有上限——与审计 §3 的预判一致。
 2. **G2 重定义后 PASS**：同 (μ_M,μ_F) 下精确 Lagrangian J(OPEF) ≥ J(DP) 全部成立；OPEF-3 在相邻动作族下 J 距 DP 仅 +1.2（(256,1.0) 点）。v0 的 '50.2% bit gap' 确系无效指标（OPEF-1 甚至为负 gap 但 P_D 远低）。
-3. **adjacent-only 消除跨级偏置（P0-4）**：2×2 实验中 cross-level 下 OPEF-2 的 E[B]=8.93，adjacent-only 降至 2.32 bits（同一 (s,η)）——审计判定的 '有限深度 lookahead 偏爱大跨度' 被定量证实；同时 Exact DP 的 V* 在两种动作族下逐点相等（0.00e+00，机器精度），验证了 'cross-level 在 b_h=0 时被 adjacent 弱支配' 的理论结论。
+3. **adjacent-only 是规范化建模，不是性能增强（2×2 实验）**：2×2 中 cross-level 下 OPEF-2 的 E[B]=8.93，adjacent-only 降至 2.32 bits（同一 (s,η)）——'有限深度 lookahead 偏爱大跨度' 被定量证实；但 (256,1) 处 cross-level OPEF-2 的 ΔJ=3.45 反而小于 adjacent-only 的 ΔJ=24.70，即 adjacent-only 同时暴露了 depth-2 的**过早停止**问题。真正结论是：action-count depth 本身是错误的 horizon 坐标（大跨度动作与多步递增动作的前视能力不公平），因此需要 resource-bounded lookahead（按累计未来 bit 成本截断），而不是把 adjacent-only 当作 solver 增强。Exact DP 的 V* 在两种动作族下逐点相等（0.00e+00，机器精度），验证了 'cross-level 在 b_h=0 时被 adjacent 弱支配' 的理论结论。
 4. **O-PEF 的剩余差距是真实 solver 限制，而非评价假象**：修复目标一致性后，OPEF-2E/3 仍因有限深度截断而过早停止（把 continuation 估得过贵），其 P_D@P_FA=0.05 上界（0.76 / 0.837）低于 matched 目标（0.838）；按审计 §9.7，下一步应做 resource-bounded lookahead（按累计未来 bit 成本截断 horizon）或加深至 depth-4+，而非继续堆叠 MVS-A 之外的机制。
 5. **公平基线对比（G4）**：Exact constrained DP 在 QoS-matched 点（E[B]≈6.0 bits）优于所有公平基线（B9 7.57、B11 9.16、1-bit-seeded P-OTS 9.03），构成其性能上包络（符合审计 §9.6 的预期）；Oracle-order 的 P-OTS/OTS-F 仅作诊断（7.94 / 9.51 bits）。O-PEF-2E/3 在达到 matched QoS 之前无法与这些基线公平比较——这是 solver 的瓶颈，不是 'adaptive evidence acquisition 无价值' 的证据。
 6. **进入 MVS-B 的前置条件**（按 §66/§70）：G0/G1a/G1b/G2 已过；G3/G4 对 OPEF 仍 FAIL（solver 深度受限）——先完成 resource-bounded lookahead 的 OPEF 改进并复验 G3/G4，再做 MVS-B。

@@ -84,8 +84,14 @@ def exact_stop_distribution(ss, policy, pi=(0.5, 0.5)):
 
 def exact_np_roc(omega, m0, m1, pfa_target):
     """Exact randomized Neyman-Pearson threshold on a discrete STOP-Ω
-    distribution: returns (eta, p_rand, pfa, pd) with pfa == pfa_target."""
+    distribution: returns (eta, p_rand, pfa, pd) with pfa == pfa_target.
+
+    Normalization is per-hypothesis (R1.1-B fix of adcice/002.md): P_FA uses
+    n0 = sum(m0), P_D uses n1 = sum(m1).  Identical to the old code for
+    pi_0 = pi_1, correct for arbitrary priors.
+    """
     n0 = float(m0.sum())
+    n1 = float(m1.sum())
     u = np.unique(omega)
     p0_ge = np.array([m0[omega >= t].sum() / n0 for t in u])
     p0_gt = np.array([m0[omega > t].sum() / n0 for t in u])
@@ -95,7 +101,7 @@ def exact_np_roc(omega, m0, m1, pfa_target):
     denom = p0_ge[j] - p0_gt[j]
     p_rand = 0.0 if denom <= 0 else min(1.0, max(0.0, (pfa_target - p0_gt[j]) / denom))
     pfa = p0_gt[j] + p_rand * denom
-    pd = float((m1[omega > eta]).sum()) / n0 + p_rand * float((m1[omega == eta]).sum()) / n0
+    pd = float((m1[omega > eta]).sum()) / n1 + p_rand * float((m1[omega == eta]).sum()) / n1
     return eta, p_rand, pfa, pd
 
 

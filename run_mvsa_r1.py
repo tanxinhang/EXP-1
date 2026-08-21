@@ -94,7 +94,7 @@ def main():
     out("| P0: 只扫 μ_M=μ_F | 参数化 (s, η)：μ_M=s, μ_F=s·e^η，η=log(μ_F/μ_M) 即自然判决阈值 |")
     out("| P0: G2 '同 μ bit gap' 不成立 | G2 改为 Lagrangian J=E[B]+μ_M P_M+μ_F P_FA，验证 J_OPEF ≥ J_DP |")
     out("| P0: cross-level 对有限深度 lookahead 的偏置 | MVS-A 主版冻结 adjacent-only (0→1,1→2,2→4)；2×2 实验量化 |")
-    out("| P1: '信息负收益' 解释错误 | 改为：Bayes 风险凹 + posterior martingale ⇒ 额外信息不减期望风险；停止只因 c_a>0 或价值恰为 0 |")
+    out("| P1: '信息负收益' 解释错误 | 改为：Bayes 风险凹 + posterior martingale ⇒ 额外信息**不会增加**最优期望 Bayes 风险；停止只因 c_a>0 或价值恰为 0 |")
     out("| P1: G1 自洽性不足 | G1a 独立不变量 + G1b J(π_DP)(x0)=V*(x0) 前向/后向独立核算 |")
     out("| P1: P-OTS 免费 oracle 排序 | POTS/OTSF-oracle 降为诊断；新增公平基线 1-bit-seeded P-OTS；B9/B11 为关键公平基线 |")
     out("| P1: MC 统计口径 | 主结果改为精确前向概率传播（无 MC）；MC 仅用于 oracle 基线 |")
@@ -363,10 +363,14 @@ def main():
     out("2. **G2 重定义后 PASS**：同 (μ_M,μ_F) 下精确 Lagrangian J(OPEF) ≥ J(DP) 全部成立；"
         "OPEF-3 在相邻动作族下 J 距 DP 仅 +1.2（(256,1.0) 点）。v0 的 '50.2% bit gap' "
         "确系无效指标（OPEF-1 甚至为负 gap 但 P_D 远低）。")
-    out("3. **adjacent-only 消除跨级偏置（P0-4）**：2×2 实验中 cross-level 下 OPEF-2 的 E[B]=8.93，"
-        "adjacent-only 降至 2.32 bits（同一 (s,η)）——审计判定的 '有限深度 lookahead 偏爱大跨度' "
-        "被定量证实；同时 Exact DP 的 V* 在两种动作族下逐点相等（0.00e+00，机器精度），"
-        "验证了 'cross-level 在 b_h=0 时被 adjacent 弱支配' 的理论结论。")
+    out("3. **adjacent-only 是规范化建模，不是性能增强（2×2 实验）**：2×2 中 cross-level 下 OPEF-2 的"
+        " E[B]=8.93，adjacent-only 降至 2.32 bits（同一 (s,η)）——'有限深度 lookahead 偏爱大跨度'"
+        " 被定量证实；但 (256,1) 处 cross-level OPEF-2 的 ΔJ=3.45 反而小于 adjacent-only 的 ΔJ=24.70，"
+        " 即 adjacent-only 同时暴露了 depth-2 的**过早停止**问题。真正结论是：action-count depth 本身"
+        " 是错误的 horizon 坐标（大跨度动作与多步递增动作的前视能力不公平），因此需要 "
+        " resource-bounded lookahead（按累计未来 bit 成本截断），而不是把 adjacent-only 当作 solver 增强。"
+        " Exact DP 的 V* 在两种动作族下逐点相等（0.00e+00，机器精度），验证了 'cross-level 在 b_h=0 "
+        " 时被 adjacent 弱支配' 的理论结论。")
     out("4. **O-PEF 的剩余差距是真实 solver 限制，而非评价假象**：修复目标一致性后，"
         "OPEF-2E/3 仍因有限深度截断而过早停止（把 continuation 估得过贵），其 P_D@P_FA=0.05 "
         "上界（0.76 / 0.837）低于 matched 目标（0.838）；按审计 §9.7，下一步应做 "
