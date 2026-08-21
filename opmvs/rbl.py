@@ -20,6 +20,92 @@ import numpy as np
 from .state import R_LEVELS, action_code, action_decode
 
 
+class OnlinePlanner:
+    """Sparse memoized recursive planner (R2.1-G3 of adcice/003.md).
+
+    Solves the same recursion as ResourceBoundedLookahead but *lazily*:
+    only the (x, h) pairs reachable from the requested state are expanded —
+    no (H+1) x n_states table is ever built.  Deployed receding: re-call
+    solve(current_state, H) at every newly received message.
+    """
+
+    def __init__(self, ss, mu_M, mu_F, pi=(0.5, 0.5)):
+        self.ss = ss
+        self.mu_M = float(mu_M)
+        self.mu_F = float(mu_F)
+        self.pi = pi
+        self.C01 = mu_M / pi[1]
+        self.C10 = mu_F / pi[0]
+        p = ss.p
+        self.Rstop = np.minimum(self.C01 * p, self.C10 * (1.0 - p))
+        self.logp = ss.logp
+        self.logq = ss.logq
+        self.memo = {}
+        self.n_expansions = 0
+
+    def solve(self, idx, h):
+        """Return (value, action) for state idx with remaining budget h."""
+        key = (int(idx), int(h))
+        hit = self.memo.get(key)
+        if hit is not None:
+            return hit
+        self.n_expansions += 1
+        ss = self.ss
+        best = float(self.Rstop[idx])
+        best_a = 0
+        if h > 0:
+            lp = float(self.logp[idx])
+            lq = float(self.logq[idx])
+            zrow = ss.zcodes[idx]
+            for i in range(ss.N):
+                zi = int(zrow[i])
+                for (r2, c_a, children) in ss.actions[i][zi]:
+                    if c_a > h:
+                        continue
+                    E = 0.0
+                    for (delta, l1, l0) in children:
+                        a_ = lp + l1
+                        b_ = lq + l0
+                        m_ = a_ if a_ >= b_ else b_
+                        logw = m_ + np.log1p(np.exp(-abs(a_ - b_)))
+                        w = float(np.exp(logw))
+                        val, _ = self.solve(idx + delta, h - c_a)
+                        E += w * val
+                    Q = c_a + E
+                    if Q < best:
+                        best = Q
+                        best_a = action_code(i, r2)
+        self.memo[key] = (best, best_a)
+        return best, best_a
+
+    def reset(self):
+        self.memo = {}
+        self.n_expansions = 0
+
+
+def online_equivalence_audit(ss, V_table, pol_table, H, mu_M, mu_F, idxs):
+    """Compare the online sparse planner's (value, first action) against the
+    eager table RBL for every state in `idxs` (R2.1-G3).  A shared memo is
+    used across the test calls; its final size reports the reachable cone."""
+    planner = OnlinePlanner(ss, mu_M, mu_F)
+    max_val = 0.0
+    n_mismatch = 0
+    for idx in idxs:
+        val, act = planner.solve(int(idx), H)
+        max_val = max(max_val, abs(val - V_table[H, idx]))
+        if act != int(pol_table[H, idx]):
+            n_mismatch += 1
+    return {
+        "max_val_dev": float(max_val),
+        "n_action_mismatch": int(n_mismatch),
+        "n_states": int(len(idxs)),
+        "memo_size": len(planner.memo),
+        "n_expansions": planner.n_expansions,
+        "full_table_size": (H + 1) * ss.n_states,
+    }
+
+
+
 class ResourceBoundedLookahead:
     def __init__(self, ss, mu_M, mu_F, pi=(0.5, 0.5), H_max=None):
         self.ss = ss

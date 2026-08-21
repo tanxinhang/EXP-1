@@ -21,8 +21,12 @@
   exact_np_roc 按假设分别归一化、"不减"文字修正）+ full-precision constrained
   policy-mixture LP（`scipy.linprog`）冻结 **B_DP^CMDP** oracle；R2 实现
   **resource-bounded lookahead**（horizon = 未来 payload bits）`V_h(x)=min{R_stop,
-  min_{a:c_a≤h}[c_a+E V_{h−c_a}]}`，硬认证 V_16(x)=V*(x) 机器精度，QoS-matched
-  恢复率 η_rec=(B_fair−B_RBL)/(B_fair−B_oracle)。
+  min_{a:c_a≤h}[c_a+E V_{h−c_a}]}`，硬认证 V_16(x)=V*(x) 机器精度。
+- **R2.1（依据 adcice/003.md，MVS-A 封板）**：CMDP **column generation**
+  （LP master + ExactDP pricing oracle）认证全局最优 **B_CMDP\***；hard-budget
+  （RB-HardBudget，ablation）与 **receding RBL-RH** 分离（每状态重新读取
+  policies[H]）；online sparse planner（memoized Solve(x,h)，不建全表）与
+  eager 表全等价审计；H<16 才计入 scalability 评选；η_rec 用 B_CMDP\* 重定义。
 
 ## 目录结构
 
@@ -32,7 +36,8 @@ Exp-1/
 ├── adcice/001.md           # 交叉审计意见（R1 依据）
 ├── run_mvsa.py             # v0 流水线（diagnostic，G2/G3/G4 审计后 REOPEN）
 ├── run_mvsa_r1.py          # R1 流水线：目标一致的有约束策略审计
-├── run_mvsa_r11.py         # R1.1+R2 流水线：CMDP LP oracle + RBL（主交付）
+├── run_mvsa_r11.py         # R1.1+R2 流水线：CMDP LP oracle + RBL
+├── run_mvsa_r21.py         # R2.1 流水线：column generation 证书 + receding RBL + online solver（主交付）
 ├── smoke_test.py           # 核心模块快速冒烟测试
 ├── requirements.txt
 ├── opmvs/                  # MVS-A 实现包
@@ -42,7 +47,8 @@ Exp-1/
 │   ├── fusion.py           # log-domain 工具（softplus/logsumexp）
 │   ├── dp.py               # Exact DAG-DP + Bellman residual 审计
 │   ├── opef.py             # O-PEF-1 / O-PEF-2E / O-PEF-3
-│   ├── rbl.py              # R2: resource-bounded lookahead + (idx,h) 精确传播
+│   ├── rbl.py              # R2: resource-bounded lookahead + (idx,h) 精确传播 + OnlinePlanner
+│   ├── cmdp.py             # R2.1: CMDP column generation（LP master + ExactDP pricing）
 │   ├── eval_exact.py       # R1: 精确前向概率传播 + G1a/G1b + 精确 P_D,max
 │   ├── baselines.py        # B0–B11 + 公平基线精确 table-policy 构建
 │   ├── mc.py               # 向量化 Monte Carlo + 随机化 Neyman-Pearson 评估
@@ -50,8 +56,9 @@ Exp-1/
 └── report/
     ├── MVS-A_report.md     # v0 诊断报告（G2/G3/G4 FAIL，审计后 REOPEN）
     ├── MVS-A-R1_report.md  # R1 目标一致审计报告
-    ├── MVS-A-R1.1_R2_report.md  # R1.1+R2 CMDP oracle 与 RBL 报告（主交付）
-    └── figures/            # 量化器 / Pareto / 精度审计 / R1 / R2 图
+    ├── MVS-A-R1.1_R2_report.md  # R1.1+R2 CMDP oracle 与 RBL 报告
+    ├── MVS-A-R2.1_report.md     # R2.1 认证 CMDP + receding online RBL 报告（主交付）
+    └── figures/            # 量化器 / Pareto / 精度审计 / R1 / R2 / R2.1 图
 ```
 
 ## 运行
@@ -61,10 +68,12 @@ pip install -r requirements.txt
 
 python run_mvsa.py           # v0 流水线（约 5–8 分钟）
 python run_mvsa_r1.py        # R1 流水线（约 7–10 分钟）
-python run_mvsa_r11.py       # R1.1+R2 流水线（约 7 分钟，推荐）
+python run_mvsa_r11.py       # R1.1+R2 流水线（约 10 分钟）
+python run_mvsa_r21.py       # R2.1 流水线（约 10 分钟，推荐）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
 python run_mvsa_r11.py --smoke
+python run_mvsa_r21.py --smoke
 python smoke_test.py         # 核心模块自检
 ```
 
@@ -102,17 +111,32 @@ python smoke_test.py         # 核心模块自检
   J(π_DP)(x0)=V*(x0) 达 1e-13）；v0 的 μ→∞ ceiling 确认为 Bayes/NP criterion mismatch 症状
   （DP 在 s=4096 时 P_D@P_FA=0.05 ≈ 0.847 ≈ P_D,max）；2×2 实验证实 cross-level 对有限深度
   lookahead 的偏置；adjacent-only 是消除 confounder 的规范化而非性能增强。
-- **R1.1+R2**（`report/MVS-A-R1.1_R2_report.md`，主交付）：
+- **R1.1+R2**（`report/MVS-A-R1.1_R2_report.md`）：
   - R1.1：1bit_POTS 冻结 1-bit 排序修复；exact_np_roc 按假设归一化；
-    **B_DP^CMDP**（constrained policy-mixture LP，scipy linprog）冻结为 R2 oracle；
+    **B_DP^CMDP**（constrained policy-mixture LP）冻结为 R2 oracle；
   - R2：resource-bounded lookahead，horizon=未来 payload bits；
-    **V_16(x)=V*(x) 机器精度**（硬认证）；
-    QoS-matched（P_FA=0.05, P_D≥P_D,max−0.01）下 B_RBL ≈ 5.6 bits（H=12 已优于 DP 单点 5.99）；
-    η_rec = (B_fair−B_RBL)/(B_fair−B_oracle) 达标（硬 Gate ≥50% 通过）。
+    **V_16(x)=V*(x) 机器精度**（硬认证）。
+- **R2.1**（`report/MVS-A-R2.1_report.md`，MVS-A 封板）：
+  - **CMDP column generation**（LP master + ExactDP pricing）认证全局最优
+    **B_CMDP\***（比 RMP 网格解更优——pricing 发现了网格外的策略列）；
+  - **receding RBL-RH** 与 hard-budget（RB-HardBudget）分离；receding 在
+    **H=6**（≪16）即 QoS 达标且 E[B] ≈ 5.2 bits < B9（7.57）——scalability 成立；
+  - **online sparse planner**（memoized Solve(x,h)，不建全表）与 eager 表
+    动作/值全等价（0 不一致）；部署时 root 求解稀疏率 ~3%；
+  - η_rec（重定义，用 B_CMDP\* 与 receding H<16 的 B_RBL）达标硬 Gate ≥50%。
 
-## 下一步（MVS-B）
+## 下一步（MVS-B0/B1/B2，MVS-A 封板）
 
-R1.1 的 CMDP oracle 与 R2 的 RBL 认证通过后进入 MVS-B（N=8、0/1/2/4/8 bit、
-Rician U2U 信道、header 16 bit、packet loss，§37–§42）：`StateSpace` 的 `BASE=47`
-（1+2+4+16+256）、`c_a^radio = b_h + r'−r` 与 ARQ-collapsed 成本；跨级动作在
-b_h>0 后才有物理意义（RBL horizon 直接改用累计 radio bits）；Gate G5 在 MVS-B 上执行。
+MVS-A 的 G0/G1a/G1b/G2 + R2.1-G0..G4 全部通过，按 003.md 冻结，不再继续优化。
+进入 MVS-B 分三步（每次只加一个新变量）：
+
+- **MVS-B0**：`b_h = 16` + cross-level actions（验证 b_h>0 后跨级动作恢复价值，
+  闭合 R1 的"cross-level 在 b_h=0 被弱支配"理论闭环）；
+- **MVS-B1**：异构 ARQ-collapsed 成本 `c̄_a = (b_h + r'−r)/p_i^succ`（非整数成本 ⇒
+  R2.1-G3 的稀疏递归 planner 需实数 budget 处理）；
+- **MVS-B2**：显式 packet-loss（failure self-loop）与 collapsed 版本 A/B 对照。
+
+关键算术修正（003.md §8）：MVS-B 每 UAV evidence states =
+**1+2+4+16+256 = 279**（不是 47）；279⁸ ≈ 1e19 ⇒ **MVS-B 禁止复用全枚举 StateSpace**，
+必须使用 R2.1-G3 的 sparse online planner。MVS-B 最重要的实验是
+sensing/U2U **anti-correlation** regime（强 sensing ≠ 低通信成本）。
