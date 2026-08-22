@@ -27,6 +27,12 @@
   （RB-HardBudget，ablation）与 **receding RBL-RH** 分离（每状态重新读取
   policies[H]）；online sparse planner（memoized Solve(x,h)，不建全表）与
   eager 表全等价审计；H<16 才计入 scalability 评选；η_rec 用 B_CMDP\* 重定义。
+- **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
+  共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
+  baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
+  （Q_prog−Q_dir = E[min{D(x')−Δ₂, b_h}]，b_h=0 ⇒ 渐进支配）；q<7/23 降为 Corollary 并新增
+  E[C_future|M^(1)]<7 判据；feedback/setup 成本（b_setup）敏感性；正式 regression test suite
+  （22 项全过）；创新定位：**Feedback-Granularity-Aware Adaptive Evidence Acquisition**。
 - **MVS-B0（依据 adcice/004.md）**：**sparse tuple-state backend**
   （状态 x=(z_1..z_N)、Ω 现场计算、动作/PMF on-demand、memo key (x,h)、
   279^8 不建全表）；N=4 与旧 eager 表等价认证（B0-G0）；N=8/R={1,2,4,8}
@@ -44,7 +50,9 @@ Exp-1/
 ├── run_mvsa_r1.py          # R1 流水线：目标一致的有约束策略审计
 ├── run_mvsa_r11.py         # R1.1+R2 流水线：CMDP LP oracle + RBL
 ├── run_mvsa_r21.py         # R2.1 流水线：column generation 证书 + receding RBL + online solver
-├── run_mvsb0.py            # MVS-B0 流水线：sparse backend + header 相变 + 协议公平 baseline（主交付）
+├── run_mvsb0.py            # MVS-B0 流水线：sparse backend + header 相变 + 协议公平 baseline
+├── run_mvsb01.py           # MVS-B0.1 流水线：可信度修复 + VoI 定理 + Adaptive Direct-8（主交付）
+├── test_regressions.py     # 正式 regression test suite（22 项数学不变量）
 ├── smoke_test.py           # 核心模块快速冒烟测试
 ├── requirements.txt
 ├── opmvs/                  # MVS-A 实现包
@@ -66,7 +74,8 @@ Exp-1/
     ├── MVS-A-R1_report.md  # R1 目标一致审计报告
     ├── MVS-A-R1.1_R2_report.md  # R1.1+R2 CMDP oracle 与 RBL 报告
     ├── MVS-A-R2.1_report.md     # R2.1 认证 CMDP + receding online RBL 报告
-    ├── MVS-B0_report.md        # MVS-B0 sparse-state header 报告（主交付）
+    ├── MVS-B0_report.md        # MVS-B0 sparse-state header 报告
+    ├── MVS-B0.1_report.md      # MVS-B0.1 可信度修复 + 理论拔高报告（主交付）
     └── figures/            # 量化器 / Pareto / 精度审计 / R1 / R2 / R2.1 图
 ```
 
@@ -79,7 +88,9 @@ python run_mvsa.py           # v0 流水线（约 5–8 分钟）
 python run_mvsa_r1.py        # R1 流水线（约 7–10 分钟）
 python run_mvsa_r11.py       # R1.1+R2 流水线（约 10 分钟）
 python run_mvsa_r21.py       # R2.1 流水线（约 10 分钟）
-python run_mvsb0.py          # MVS-B0 流水线（约 6–15 分钟，推荐）
+python run_mvsb0.py          # MVS-B0 流水线（约 6–15 分钟）
+python run_mvsb01.py         # MVS-B0.1 流水线（约 20–30 分钟，推荐）
+python test_regressions.py   # regression suite（约 3–4 分钟）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
 python run_mvsa_r11.py --smoke

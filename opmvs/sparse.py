@@ -55,7 +55,7 @@ def z_decode_b(z):
 _TPL_CACHE = {}
 
 
-def _build_templates(quantizers, b_h, cross_level, levels):
+def _build_templates(quantizers, b_h, cross_level, levels, direct_only, delta_c):
     N = len(quantizers)
     r_max = max(levels)
     tpl = [[None] * BASE_B for _ in range(N)]
@@ -66,36 +66,53 @@ def _build_templates(quantizers, b_h, cross_level, levels):
             if r >= r_max:
                 tpl[i][z] = []
                 continue
-            r2s = levels if cross_level else \
-                (next((r2 for r2 in levels if r2 > r), None),)
+            if direct_only:
+                r2s = (levels[-1],) if r == 0 else ()      # Adaptive Direct-8
+            elif cross_level:
+                r2s = levels
+            else:
+                r2s = (next((r2 for r2 in levels if r2 > r), None),)
             out = []
             for r2 in r2s:
                 if r2 is None or r2 <= r:
                     continue
                 c_a = b_h + (r2 - r)
+                cq = int(round(c_a / delta_c))             # resource-lattice
                 cells = []
                 for m2 in q.desc_cells(r, m, r2):
                     lp0c = q.logP0[r2][m2] - (0.0 if r == 0 else q.logP0[r][m])
                     lp1c = q.logP1[r2][m2] - (0.0 if r == 0 else q.logP1[r][m])
                     cells.append((int(m2), float(lp0c), float(lp1c)))
-                out.append((r2, c_a, cells))
+                out.append((r2, cq, cells))
             tpl[i][z] = out
     return tpl
 
 
-def _get_templates(quantizers, b_h, cross_level, levels):
-    key = (tuple(id(q) for q in quantizers), float(b_h), bool(cross_level), tuple(levels))
+def _get_templates(quantizers, b_h, cross_level, levels, direct_only=False, delta_c=1.0):
+    key = (tuple(id(q) for q in quantizers), float(b_h), bool(cross_level),
+           tuple(levels), bool(direct_only), float(delta_c))
     if key not in _TPL_CACHE:
         _TPL_CACHE[key] = _build_templates(quantizers, float(b_h), bool(cross_level),
-                                           tuple(levels))
+                                           tuple(levels), bool(direct_only), float(delta_c))
     return _TPL_CACHE[key]
 
 
 class SparsePlanner:
-    """Memoized resource-bounded receding-horizon planner over int states."""
+    """Memoized resource-bounded receding-horizon planner over int states.
+
+    Options (B0.1 of adcice/005.md):
+      direct_only : action set restricted to {(i, 0->8)} — the Adaptive
+                    Direct-8 optimal baseline (isolates UAV-selection value
+                    from multi-resolution evidence value).
+      delta_c     : resource lattice step for possibly non-integer costs
+                    (B1: c_a / p_succ); budgets/costs are integerized
+                    q = round(h / delta_c), c~ = round(c_a / delta_c), and
+                    the memo key is (x, q).
+    """
 
     def __init__(self, quantizers, mu_M, mu_F, pi=(0.5, 0.5), b_h=0.0,
-                 cross_level=True, prior_log_odds=0.0, levels=R_LEVELS_B):
+                 cross_level=True, prior_log_odds=0.0, levels=R_LEVELS_B,
+                 direct_only=False, delta_c=1.0):
         self.quants = list(quantizers)
         self.N = len(self.quants)
         self.mu_M = float(mu_M)
@@ -108,10 +125,21 @@ class SparsePlanner:
         self.prior_log_odds = float(prior_log_odds)
         self.levels = tuple(levels)
         self.r_max = max(levels)
+        self.direct_only = bool(direct_only)
+        self.delta_c = float(delta_c)
         self.powers = [BASE_B ** i for i in range(self.N)]   # Python ints (279^8 > int64)
         self.memo = {}
         self.n_expansions = 0
-        self._tpl = _get_templates(self.quants, self.b_h, self.cross_level, self.levels)
+        self._tpl = _get_templates(self.quants, self.b_h, self.cross_level,
+                                   self.levels, self.direct_only, self.delta_c)
+        # per-(i, z) message-LLR contribution (0 for z = 0): O(1) child Ω update
+        self._llr_i = [[0.0] * BASE_B for _ in range(self.N)]
+        for i in range(self.N):
+            for z in range(BASE_B):
+                if z:
+                    r, m = z_decode_b(z)
+                    if r in self.quants[i].llr:          # level exists in this system
+                        self._llr_i[i][z] = self.quants[i].llr[r][m]
 
     # ----------------------------------------------------------- state utils
     def encode(self, z_tuple):
@@ -131,9 +159,7 @@ class SparsePlanner:
         for i in range(self.N):
             z = rem % BASE_B
             rem //= BASE_B
-            if z:
-                r, m = z_decode_b(z)
-                om += self.quants[i].llr[r][m]
+            om += self._llr_i[i][z]
         return om
 
     def posterior(self, x_int):
@@ -150,17 +176,24 @@ class SparsePlanner:
     # ------------------------------------------------------------ solver
     def solve(self, x_int, h):
         """Return (value, action) for int state x_int with budget h;
-        action = (i, r2) or None for STOP.  Memoized on (x_int, h)."""
-        key = (int(x_int), int(h))
+        action = (i, r2) or None for STOP.  Memoized on (x_int, q)."""
+        q = int(round(h / self.delta_c))
+        om = self.omega(x_int)
+        return self._solve(int(x_int), q, om)
+
+    def _solve(self, x_int, q, om):
+        key = (x_int, q)
         hit = self.memo.get(key)
         if hit is not None:
             return hit
         self.n_expansions += 1
-        om, p, logp, logq = self.posterior(x_int)
+        logp = float(log_sigmoid(om))
+        logq = float(log_one_minus_sigmoid(om))
+        p = float(np.exp(logp))
         best = min(self.C01 * p, self.C10 * (1.0 - p))
         best_a = None
-        if h > 0:
-            rem = int(x_int)
+        if q > 0:
+            rem = x_int
             zs = []
             for _ in range(self.N):
                 zs.append(rem % BASE_B)
@@ -168,21 +201,23 @@ class SparsePlanner:
             for i in range(self.N):
                 zi = zs[i]
                 pw = self.powers[i]
-                for (r2, c_a, cells) in self._tpl[i][zi]:
-                    if c_a > h:
+                for (r2, cq, cells) in self._tpl[i][zi]:
+                    if cq > q:
                         continue
                     E = 0.0
+                    llr_i = self._llr_i[i]
                     for (m2, lp0c, lp1c) in cells:
                         z2 = z_code_b(r2, m2)
                         cx = x_int + (z2 - zi) * pw
+                        om_c = om + llr_i[z2] - llr_i[zi]      # O(1) child Ω
                         a_ = logp + lp1c
                         b_ = logq + lp0c
                         m_ = a_ if a_ >= b_ else b_
                         logw = m_ + np.log1p(np.exp(-abs(a_ - b_)))
                         w = float(np.exp(logw))
-                        val, _ = self.solve(cx, h - c_a)
+                        val, _ = self._solve(cx, q - cq, om_c)
                         E += w * val
-                    Q = c_a + E
+                    Q = self.delta_c * cq + E
                     if Q < best:
                         best = Q
                         best_a = (i, r2)

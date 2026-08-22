@@ -45,7 +45,9 @@ class GaussianDetectorModel:
 
     # --------------------------------------------------------------- sampling
     def sample_hypotheses(self, n, rng):
-        return rng.integers(0, 2, size=n).astype(np.int8)
+        """Sample hypotheses H ~ Bernoulli(pi_1) respecting the configured
+        prior (fix B0.1 of adcice/005.md: the prior was stored but unused)."""
+        return (rng.random(n) < self.prior[1]).astype(np.int8)
 
     def sample_llr(self, H, rng):
         """Sample local LLRs: shape (n, N). H: (n,) hypotheses {0,1}."""
