@@ -1,8 +1,8 @@
-# O-PEF MVS-A — 最小可实现系统（R1/R1.1/R2 演进）
+# O-PEF MVS-A/B0 — 最小可实现系统（R1→R2.1→MVS-B0 演进）
 
-依据 [SystemModel.md](./SystemModel.md)（O-PEF v2.1，§29–§36 定义 MVS-A 最小数学验证系统）
-搭建的**可运行、可复现**的最小实现。当前版本完整实现并验证 **MVS-A**、**MVS-A-R1**
-（目标一致纠偏）与 **MVS-A-R1.1+R2**（CMDP oracle + resource-bounded lookahead）：
+依据 [SystemModel.md](./SystemModel.md)（O-PEF v2.1）搭建的**可运行、可复现**实现。
+当前版本完成 **MVS-A（v0→R1→R1.1→R2→R2.1，已封板）** 与 **MVS-B0
+（Sparse-State Header-Aware Cross-Level O-PEF）**：
 
 - 单目标二元检测，`N = 4` 架 UAV，Gaussian 局部检测器（§30–§32）；
 - 每 UAV 一个 **nested 多精度量化器**（0/1/2/4 bit，§7、§14）；
@@ -27,6 +27,12 @@
   （RB-HardBudget，ablation）与 **receding RBL-RH** 分离（每状态重新读取
   policies[H]）；online sparse planner（memoized Solve(x,h)，不建全表）与
   eager 表全等价审计；H<16 才计入 scalability 评选；η_rec 用 B_CMDP\* 重定义。
+- **MVS-B0（依据 adcice/004.md）**：**sparse tuple-state backend**
+  （状态 x=(z_1..z_N)、Ω 现场计算、动作/PMF on-demand、memo key (x,h)、
+  279^8 不建全表）；N=4 与旧 eager 表等价认证（B0-G0）；N=8/R={1,2,4,8}
+  在线规划（B0-G1）；**header b_h 激活 cross-level 相变**（b_h=0 probe →
+  b_h≥4 direct jump；B0-G2）；协议公平 baseline（含 **Direct-8 Ordered**）
+  与 break-even 理论 q<(r''−r')/(b_h+r''−r')（B0-G3/G4）。
 
 ## 目录结构
 
@@ -37,7 +43,8 @@ Exp-1/
 ├── run_mvsa.py             # v0 流水线（diagnostic，G2/G3/G4 审计后 REOPEN）
 ├── run_mvsa_r1.py          # R1 流水线：目标一致的有约束策略审计
 ├── run_mvsa_r11.py         # R1.1+R2 流水线：CMDP LP oracle + RBL
-├── run_mvsa_r21.py         # R2.1 流水线：column generation 证书 + receding RBL + online solver（主交付）
+├── run_mvsa_r21.py         # R2.1 流水线：column generation 证书 + receding RBL + online solver
+├── run_mvsb0.py            # MVS-B0 流水线：sparse backend + header 相变 + 协议公平 baseline（主交付）
 ├── smoke_test.py           # 核心模块快速冒烟测试
 ├── requirements.txt
 ├── opmvs/                  # MVS-A 实现包
@@ -49,6 +56,7 @@ Exp-1/
 │   ├── opef.py             # O-PEF-1 / O-PEF-2E / O-PEF-3
 │   ├── rbl.py              # R2: resource-bounded lookahead + (idx,h) 精确传播 + OnlinePlanner
 │   ├── cmdp.py             # R2.1: CMDP column generation（LP master + ExactDP pricing）
+│   ├── sparse.py           # MVS-B0: sparse tuple-state planner（279^8 不建表）
 │   ├── eval_exact.py       # R1: 精确前向概率传播 + G1a/G1b + 精确 P_D,max
 │   ├── baselines.py        # B0–B11 + 公平基线精确 table-policy 构建
 │   ├── mc.py               # 向量化 Monte Carlo + 随机化 Neyman-Pearson 评估
@@ -57,7 +65,8 @@ Exp-1/
     ├── MVS-A_report.md     # v0 诊断报告（G2/G3/G4 FAIL，审计后 REOPEN）
     ├── MVS-A-R1_report.md  # R1 目标一致审计报告
     ├── MVS-A-R1.1_R2_report.md  # R1.1+R2 CMDP oracle 与 RBL 报告
-    ├── MVS-A-R2.1_report.md     # R2.1 认证 CMDP + receding online RBL 报告（主交付）
+    ├── MVS-A-R2.1_report.md     # R2.1 认证 CMDP + receding online RBL 报告
+    ├── MVS-B0_report.md        # MVS-B0 sparse-state header 报告（主交付）
     └── figures/            # 量化器 / Pareto / 精度审计 / R1 / R2 / R2.1 图
 ```
 
@@ -69,7 +78,8 @@ pip install -r requirements.txt
 python run_mvsa.py           # v0 流水线（约 5–8 分钟）
 python run_mvsa_r1.py        # R1 流水线（约 7–10 分钟）
 python run_mvsa_r11.py       # R1.1+R2 流水线（约 10 分钟）
-python run_mvsa_r21.py       # R2.1 流水线（约 10 分钟，推荐）
+python run_mvsa_r21.py       # R2.1 流水线（约 10 分钟）
+python run_mvsb0.py          # MVS-B0 流水线（约 6–15 分钟，推荐）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
 python run_mvsa_r11.py --smoke

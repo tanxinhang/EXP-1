@@ -17,20 +17,21 @@ baselines  : B0..B11 reference and mechanism baselines            [§49-§53]
 gates      : G0/G1/G2 gate checks                                 [§34-§36, §66]
 """
 
-from . import model, quantizer, state, fusion, dp, opef, mc, baselines, gates, eval_exact, rbl, cmdp
+from . import model, quantizer, state, fusion, dp, opef, mc, baselines, gates, eval_exact, rbl, cmdp, sparse
 from .model import GaussianDetectorModel
 from .quantizer import NestedQuantizer
 from .state import StateSpace, R_LEVELS, RMAX, z_code, z_decode, action_code, action_decode
 from .dp import ExactDP, SolverBase
 from .opef import OPEF1, OPEF2, OPEF3
 from .rbl import ResourceBoundedLookahead, OnlinePlanner
+from .sparse import SparsePlanner, z_code_b, z_decode_b, BASE_B
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 __all__ = [
     "model", "quantizer", "state", "fusion", "dp", "opef", "mc", "baselines", "gates",
-    "eval_exact", "rbl", "cmdp",
+    "eval_exact", "rbl", "cmdp", "sparse",
     "GaussianDetectorModel", "NestedQuantizer", "StateSpace",
     "R_LEVELS", "RMAX", "z_code", "z_decode", "action_code", "action_decode",
     "ExactDP", "SolverBase", "OPEF1", "OPEF2", "OPEF3", "ResourceBoundedLookahead",
-    "OnlinePlanner",
+    "OnlinePlanner", "SparsePlanner", "z_code_b", "z_decode_b", "BASE_B",
 ]
