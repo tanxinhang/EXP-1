@@ -76,14 +76,14 @@ def _build_templates(quantizers, b_h, cross_level, levels, direct_only, delta_c)
             for r2 in r2s:
                 if r2 is None or r2 <= r:
                     continue
-                c_a = b_h + (r2 - r)
-                cq = int(round(c_a / delta_c))             # resource-lattice
+                c_true = b_h + (r2 - r)
+                q_budget = int(np.ceil(c_true / delta_c))   # conservative (never under-spend)
                 cells = []
                 for m2 in q.desc_cells(r, m, r2):
                     lp0c = q.logP0[r2][m2] - (0.0 if r == 0 else q.logP0[r][m])
                     lp1c = q.logP1[r2][m2] - (0.0 if r == 0 else q.logP1[r][m])
                     cells.append((int(m2), float(lp0c), float(lp1c)))
-                out.append((r2, cq, cells))
+                out.append((r2, c_true, q_budget, cells))
             tpl[i][z] = out
     return tpl
 
@@ -176,8 +176,15 @@ class SparsePlanner:
     # ------------------------------------------------------------ solver
     def solve(self, x_int, h):
         """Return (value, action) for int state x_int with budget h;
-        action = (i, r2) or None for STOP.  Memoized on (x_int, q)."""
-        q = int(round(h / self.delta_c))
+        action = (i, r2) or None for STOP.  Memoized on (x_int, q).
+
+        Resource lattice (006.md §7): the Bellman objective uses the TRUE cost
+        c_a; the budget feasibility uses the conservative lattice
+        q_a = ceil(c_a / delta_c) — an action is only ever declared feasible
+        when the true cost fits, so discretization never invents feasibility.
+        The discretization loss is bounded by 0 <= C~ - C < N_txn * delta_c.
+        """
+        q = int(np.floor(h / self.delta_c))          # conservative budget units
         om = self.omega(x_int)
         return self._solve(int(x_int), q, om)
 
@@ -201,8 +208,8 @@ class SparsePlanner:
             for i in range(self.N):
                 zi = zs[i]
                 pw = self.powers[i]
-                for (r2, cq, cells) in self._tpl[i][zi]:
-                    if cq > q:
+                for (r2, c_true, qb, cells) in self._tpl[i][zi]:
+                    if qb > q:
                         continue
                     E = 0.0
                     llr_i = self._llr_i[i]
@@ -215,9 +222,9 @@ class SparsePlanner:
                         m_ = a_ if a_ >= b_ else b_
                         logw = m_ + np.log1p(np.exp(-abs(a_ - b_)))
                         w = float(np.exp(logw))
-                        val, _ = self._solve(cx, q - cq, om_c)
+                        val, _ = self._solve(cx, q - qb, om_c)
                         E += w * val
-                    Q = self.delta_c * cq + E
+                    Q = c_true + E
                     if Q < best:
                         best = Q
                         best_a = (i, r2)

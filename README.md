@@ -27,6 +27,17 @@
   （RB-HardBudget，ablation）与 **receding RBL-RH** 分离（每状态重新读取
   policies[H]）；online sparse planner（memoized Solve(x,h)，不建全表）与
   eager 表全等价审计；H<16 才计入 scalability 评选；η_rec 用 B_CMDP\* 重定义。
+- **MVS-B0.1a（依据 advice/006.md）**：1bit-POTS seed 后立即停止 + seed-aware LLR；
+  真前缀 CRN（paired 对比）；Wilson CI 正式输出；resource lattice 保守化
+  （true cost + ceil budget，离散化界 0≤C̃−C<N_txn·Δc）；**reachable-state ΔQ sweep**
+  验证 critical feedback-granularity threshold（b*≈8：P(ΔQ>0): 0→0.69）。
+- **MVS-B0.3（CR-RBL）**：Confidence-Certified Rollout RBL——base-rollout Q_a^πb
+  + anytime Hoeffding 证书（δ_{a,n}=6δ/(π²|A|n²)）+ LUCB challenger + nested-evidence
+  CRN（耦合 latent rollout）；return 有界 0≤G≤C_max^rem+R_max；Gates G0（CI 覆盖）、
+  G1/G2（N=4/N=8 exact oracle 对比）、G3（certification error≤δ）、G4（scalability
+  H=48/64/96/120 无全 cone）、G5（matched QoS 方向性）；创新定位：
+  Confidence-certified feedback-granularity-aware evidence acquisition over a
+  variable-cost nested-evidence DAG。
 - **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
@@ -51,7 +62,9 @@ Exp-1/
 ├── run_mvsa_r11.py         # R1.1+R2 流水线：CMDP LP oracle + RBL
 ├── run_mvsa_r21.py         # R2.1 流水线：column generation 证书 + receding RBL + online solver
 ├── run_mvsb0.py            # MVS-B0 流水线：sparse backend + header 相变 + 协议公平 baseline
-├── run_mvsb01.py           # MVS-B0.1 流水线：可信度修复 + VoI 定理 + Adaptive Direct-8（主交付）
+├── run_mvsb01.py           # MVS-B0.1 流水线：可信度修复 + VoI 定理 + Adaptive Direct-8
+├── run_mvsb01a.py          # MVS-B0.1a 补丁：seed-aware POTS + ΔQ 相变 + 保守 lattice
+├── run_mvsb03.py           # B0.3 CR-RBL：认证 rollout 规划器（主交付）
 ├── test_regressions.py     # 正式 regression test suite（22 项数学不变量）
 ├── smoke_test.py           # 核心模块快速冒烟测试
 ├── requirements.txt
@@ -65,6 +78,7 @@ Exp-1/
 │   ├── rbl.py              # R2: resource-bounded lookahead + (idx,h) 精确传播 + OnlinePlanner
 │   ├── cmdp.py             # R2.1: CMDP column generation（LP master + ExactDP pricing）
 │   ├── sparse.py           # MVS-B0: sparse tuple-state planner（279^8 不建表）
+│   ├── rbl_cr.py           # B0.3: CR-RBL（certified rollout RBL）
 │   ├── eval_exact.py       # R1: 精确前向概率传播 + G1a/G1b + 精确 P_D,max
 │   ├── baselines.py        # B0–B11 + 公平基线精确 table-policy 构建
 │   ├── mc.py               # 向量化 Monte Carlo + 随机化 Neyman-Pearson 评估
@@ -75,7 +89,9 @@ Exp-1/
     ├── MVS-A-R1.1_R2_report.md  # R1.1+R2 CMDP oracle 与 RBL 报告
     ├── MVS-A-R2.1_report.md     # R2.1 认证 CMDP + receding online RBL 报告
     ├── MVS-B0_report.md        # MVS-B0 sparse-state header 报告
-    ├── MVS-B0.1_report.md      # MVS-B0.1 可信度修复 + 理论拔高报告（主交付）
+    ├── MVS-B0.1_report.md      # MVS-B0.1 可信度修复 + 理论拔高报告
+    ├── MVS-B0.1a_report.md     # B0.1a 补丁报告
+    ├── MVS-B0.3_report.md      # B0.3 CR-RBL 认证 rollout 报告（主交付）
     └── figures/            # 量化器 / Pareto / 精度审计 / R1 / R2 / R2.1 图
 ```
 
@@ -89,7 +105,9 @@ python run_mvsa_r1.py        # R1 流水线（约 7–10 分钟）
 python run_mvsa_r11.py       # R1.1+R2 流水线（约 10 分钟）
 python run_mvsa_r21.py       # R2.1 流水线（约 10 分钟）
 python run_mvsb0.py          # MVS-B0 流水线（约 6–15 分钟）
-python run_mvsb01.py         # MVS-B0.1 流水线（约 20–30 分钟，推荐）
+python run_mvsb01.py         # MVS-B0.1 流水线（约 20–30 分钟）
+python run_mvsb01a.py        # MVS-B0.1a 补丁（约 1 分钟）
+python run_mvsb03.py         # B0.3 CR-RBL（约 6–10 分钟，推荐）
 python test_regressions.py   # regression suite（约 3–4 分钟）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke

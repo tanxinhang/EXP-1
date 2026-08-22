@@ -147,8 +147,8 @@ def run():
     # direct-only action set
     pl_d = sp.SparsePlanner(quants8, 256.0, 256.0, b_h=16.0, cross_level=True, direct_only=True)
     tpl0 = pl_d._tpl[0][0]
-    check("Adaptive Direct-8 only 0->8", all(r2 == 8 for (r2, _c, _cells) in tpl0),
-          f"{[(r2, c) for (r2, c, _) in tpl0]}")
+    check("Adaptive Direct-8 only 0->8", all(r2 == 8 for (r2, _c, _qb, _cells) in tpl0),
+          f"{[(r2, c) for (r2, c, _q, _cl) in tpl0]}")
     # VoI identity
     from run_mvsb01 import verify_voi
     for bh_ in (0.0, 16.0):

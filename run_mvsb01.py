@@ -225,7 +225,7 @@ def verify_voi(planner, x_int, i, bh):
 
     # Q_direct = b_h + 8 + E[R(x'')]
     Q_dir = bh + 8
-    for (m2, lp0c, lp1c) in dir_act[2]:
+    for (m2, lp0c, lp1c) in dir_act[3]:
         a_ = lp + lp1c
         b_ = lq + lp0c
         m_ = a_ if a_ >= b_ else b_
@@ -236,7 +236,7 @@ def verify_voi(planner, x_int, i, bh):
     Q_prog = bh + 1
     lhs_inside = 0.0
     rhs_inside = 0.0
-    for (m1, lp0c1, lp1c1) in prog_act[2]:
+    for (m1, lp0c1, lp1c1) in prog_act[3]:
         a_ = lp + lp1c1
         b_ = lq + lp0c1
         m_ = a_ if a_ >= b_ else b_
@@ -250,7 +250,7 @@ def verify_voi(planner, x_int, i, bh):
         ref_act = next((a for a in q._tpl[i][z_code_b(1, m1)] if a[0] == 8), None)
         E_R = 0.0
         if ref_act is not None:
-            for (m2, lp0c, lp1c) in ref_act[2]:
+            for (m2, lp0c, lp1c) in ref_act[3]:
                 a_ = lp1 + lp1c
                 b_ = lq1 + lp0c
                 m_ = a_ if a_ >= b_ else b_
