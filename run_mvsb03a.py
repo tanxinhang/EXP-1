@@ -167,6 +167,7 @@ def g_state(pl, i, b, r, m=0):
     E_cont = 0.0          # sum w1 * min{ R(x1), b + D2 + E_R }  (strategy value)
     E_ER = 0.0            # sum w1 * E[R(x'')|x1]  (tower property: == E_dir)
     EY_acc = 0.0          # E[Y_x] = sum w1 * (D(x1) - D2)  (008 §6 criterion)
+    Ymax = -np.inf        # ess sup Y_x (plateau criterion, 009 §3)
     surv = 0.0
     d2 = r_max - r_next
     for (m1, lp0c1, lp1c1) in prog_tpl[3]:
@@ -197,12 +198,14 @@ def g_state(pl, i, b, r, m=0):
         E_min += w1 * min(Y, b)
         E_ER += w1 * E_R
         EY_acc += w1 * Y
+        Ymax = max(Ymax, Y)
         surv += w1 * (1.0 if Y > b else 0.0)
     Q_prog = (b + (r_next - r)) + E_cont
     g_alt = Q_prog - Q_dir                 # strategy-value form
     E_ER_alt = E_ER
     return {"g": E_min, "Q_prog": Q_prog, "Q_dir": Q_dir, "surv": surv,
-            "g_alt": g_alt, "tower_dev": abs(E_ER - E_dir), "EY": EY_acc}
+            "g_alt": g_alt, "tower_dev": abs(E_ER - E_dir), "EY": EY_acc,
+            "Ymax": Ymax}
 
 
 def bstar_from_grid(b_grid, g_grid):
@@ -301,7 +304,7 @@ def main():
         cr.rng = np.random.default_rng(1000 + r)
         i0, r20 = target_a
         c_a0 = bh + (r20 - 0)                      # x0 = root, target UAV at r=0
-        Bx = cr.bound_a(x0, 40, c_a0)              # B0.3c: budget-aware diameter
+        Bx = cr.bound_a(x0, 40, c_a0, action=target_a)   # B0.3c: budget-aware diameter
         qhat = 0.0
         ok_all = True
         ok_fixed = False
@@ -632,20 +635,26 @@ def main():
             d_ok &= abs(fd - survs[k]) < 0.05
             d_info.append(f"g'({bd:.0f})={fd:.3f} vs Pr(Y>{bd:.0f})={survs[k]:.3f}")
         b_star = bstar_from_grid(b_grid, gs)
-        # B0.3c (008 §6): E[Y_x] existence criterion.  Since Y_x is bounded in
-        # the finite quantizer DAG, g_x(b) -> E[Y_x] as b -> inf; monotonicity
-        # gives  b*(x) < inf  <=>  E[Y_x] >= 0,  and  E[Y_x] < 0  =>
-        # b*(x) = +inf (progressive dominates direct for every b_h >= 0).
+        # B0.3c/B0.4 prelude (008 §6, 009 §3): E[Y_x] existence criterion.
+        # Since Y_x is bounded in the finite quantizer DAG, g_x(b) -> E[Y_x]
+        # as b -> inf and min(Y,b) <= Y gives g_x(b) <= E[Y_x].  Hence:
+        #   b*(x) < inf  <=>  E[Y_x] >= 0;   E[Y_x] < 0 => g_x(b) < 0 for all
+        #   b >= 0 => b*(x) = +inf.  The stronger 'g(b) == E[Y] plateau for all
+        #   b' requires ess sup Y_x <= 0 (NOT a general consequence of E[Y]<0).
         gg0 = g_state(sp.SparsePlanner(quants8, muM, muF, b_h=0.0, cross_level=True),
                       i_g6, 0.0, r, m)
         EY = gg0["EY"] if gg0 is not None else float("nan")
+        Ymax = gg0["Ymax"] if gg0 is not None else float("nan")
         crit_ok = (b_star < float("inf")) == (EY >= -1e-9)
-        # flat tail check: E[Y] < 0  =>  g(b) constant = E[Y] (b* = inf)
-        flat = (EY < -1e-9) and max(abs(g - EY) for g in gs) < 1e-6
+        # g(b) <= E[Y] < 0 check (valid for every state with E[Y] < 0)
+        dom_ok = all(g <= EY + 1e-9 for g in gs) if EY < -1e-9 else True
+        # genuine plateau requires ess sup Y <= 0 (holds for the 1-bit states)
+        plateau = (Ymax <= 1e-9) and max(abs(g - EY) for g in gs) < 1e-6
         out(f"- {tag}: g(b) 序列 = {[round(float(g), 3) for g in gs]}；"
             f"monotone={mono}，concave={conc}；{'；'.join(d_info)}（Δ=2 中心差分）；"
-            f"b⋆(x) = {fmt(b_star)}；E[Y_x] = {fmt(EY)}"
-            f"（b⋆<∞ ⟺ E[Y_x]≥0：{mp(crit_ok)}；E[Y_x]<0 ⇒ g≡E[Y] 平台：{flat}）")
+            f"b⋆(x) = {fmt(b_star)}；E[Y_x] = {fmt(EY)}，ess sup Y = {fmt(Ymax)}"
+            f"（b⋆<∞ ⟺ E[Y_x]≥0：{mp(crit_ok)}；E[Y]<0 ⇒ g(b)≤E[Y]<0 ∀b：{mp(dom_ok)}；"
+            f"g≡E[Y] 平台（需 ess sup Y≤0）：{plateau}）")
         if r == 0:
             out(f"  - 根状态 b⋆(x₀) = {fmt(b_star)}（线性插值；B0.1a 网格口径 ≈8）——"
                 f"与 B0.1a root-state 结论一致；且 g 恰为线性、survival≡0.5 ⇒ "
@@ -656,7 +665,9 @@ def main():
                 f"1-bit 子状态 = ∞），reachable-state 平均在 b=32 仍为负（B0.1a §4），"
                 f"证明 b⋆ 是 **state-dependent phase boundary**，不是全局阈值（007 §4 P1-D）；"
                 f"且 E[Y_x]={fmt(EY)}<0 直接给出 **analytic certificate**："
-                f"progressive dominates direct for every b_h ≥ 0（008 §6），无需扫 b。")
+                f"progressive dominates direct for every b_h ≥ 0（008 §6），无需扫 b；"
+                f"此处 g≡E[Y] 平台成立是因为 ess sup Y={fmt(Ymax)}≤0（009 §3："
+                f"平台需 ess sup Y≤0，不能作为 E[Y]<0 的一般推论）。")
         out("")
     out("")
     # ------------------------------------------------------------ G7

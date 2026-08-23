@@ -9,7 +9,7 @@
 > **P1-A/B/C/D** anytime coverage gate、binomial U95 violation gate + certification rate、回归不变量 T15-T20、b⋆(x₀) root-state 理论表述。
 > **B0.3c（008）**：natural 阈值 η_nat=log(μ_F/μ_M)=1.0（T21 锁死）；G5 改名 directional (unmatched) comparison；joint-H vs pairing 三格消融（G7）；Hoeffding range 收紧 B→B_a(x,h)=min{c_max_rem,h}+R_max−c_a（G1/G3/G4 重测）；T17 拆分（T17a 确定性 + T17b 经验审计）；E[Y_x] 存在性判据（G6，b⋆<∞⟺E[Y]≥0）。
 
-> 生成时间: 2026-08-23 10:27:18   模式: FULL
+> 生成时间: 2026-08-23 13:20:45   模式: FULL
 
 ## 1. G0 — anytime CI coverage（oracle = Q_a^{π_b}，P1-A）
 
@@ -18,7 +18,7 @@
 
 ## 2. G1 — N=4 exact oracle（best = argmin{ R_stop(x), Q_a^{π_b} }，P0-D）
 
-- 状态数 600：P(a_CR = a_{π_b}⋆) = 0.8700，E[Q^{π_b}(a_CR) − min{R_stop, Q^{π_b}}] = 0.4489，E[Q*(a_CR) − V*]（次要，V* 续值）= 1.1848；certification rate（ε=2，诊断）= 0.0000，其中 match = 0.0000（33s）
+- 状态数 600：P(a_CR = a_{π_b}⋆) = 0.8700，E[Q^{π_b}(a_CR) − min{R_stop, Q^{π_b}}] = 0.4489，E[Q*(a_CR) − V*]（次要，V* 续值）= 1.1848；certification rate（ε=2，诊断）= 0.0000，其中 match = 0.0000（24s）
 - 注：B0.3 同口径为 match=0.088 / gap=4.18；paired-CRN 全配对估计（含 H_m 隐假设，见头部 P0-A）大幅改善。B0.3c 将 Hoeffding range 收紧为 D_a(x,h)=min{c_max_rem,h}+R_max−c_a（008 §4），certification rate 随 range 收紧重新测量（G3 用 ε=40 测证书本身）。
 
 ## 3. G2 — N=8 shallow oracle（H=24/34/40 vs exact sparse planner）
@@ -57,20 +57,20 @@
 | Adaptive Direct-8 | 96 | 0.6530 | 0.0500 | 0.8251 | 0.0876 | 59.4300 | 1.0275 |
 
 - **B0.3c（008 §1/§2）**：natural 判决阈值改为 η_nat = log(μ_F/μ_M) = 1.0000（与 eval_exact.py 的 objective-consistent natural decision 锁死，T21）；G5 是 **directional (unmatched) hard-budget comparison**：两个 operating point （P_D^NP、E[B]）同时不同，P_D^{CR} < P_D^{D8} 且 E[B]^{CR} < E[B]^{D8}，只有 Pareto 方向性、不是 matched-QoS 通信 gain；正式比较（CI 口径）留待 B0.6。
-- H 是 episode **硬通信预算**（h_t = H − C_t pathwise，C_T ≤ H 已断言）。n=800。（51s）
+- H 是 episode **硬通信预算**（h_t = H − C_t pathwise，C_T ≤ H 已断言）。n=800。（36s）
 
 ## 7. G6 — state-dependent phase boundary b⋆(x)（P1-D，007 §4）
 
 - 理论：g_x(b) = E[min{Y_x, b}]，Y_x = D(x') − Δ₂；b ↦ min(Y, b) 非减凹 ⇒ g_x 非减凹；无原子点 g_x'(b) = Pr(Y_x > b)；b⋆(x) = inf{ b : g_x(b) ≥ 0 } 为 state-dependent packetization phase boundary：b_h < b⋆(x) 时小 packet 渐进细化划算，b_h > b⋆(x) 时 setup 开销主导、应减少反馈次数提高单次粒度。
 
-- x0 (root): g(b) 序列 = [-3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 4.5, 8.5, 12.5, 20.5]；monotone=True，concave=True；g'(8)=0.500 vs Pr(Y>8)=0.500；g'(16)=0.500 vs Pr(Y>16)=0.500（Δ=2 中心差分）；b⋆(x) = 7.0000；E[Y_x] = 38.5594（b⋆<∞ ⟺ E[Y_x]≥0：PASS；E[Y_x]<0 ⇒ g≡E[Y] 平台：False）
+- x0 (root): g(b) 序列 = [-3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 4.5, 8.5, 12.5, 20.5]；monotone=True，concave=True；g'(8)=0.500 vs Pr(Y>8)=0.500；g'(16)=0.500 vs Pr(Y>16)=0.500（Δ=2 中心差分）；b⋆(x) = 7.0000；E[Y_x] = 38.5594，ess sup Y = 84.1187（b⋆<∞ ⟺ E[Y_x]≥0：PASS；E[Y]<0 ⇒ g(b)≤E[Y]<0 ∀b：PASS；g≡E[Y] 平台（需 ess sup Y≤0）：False）
   - 根状态 b⋆(x₀) = 7.0000（线性插值；B0.1a 网格口径 ≈8）——与 B0.1a root-state 结论一致；且 g 恰为线性、survival≡0.5 ⇒ Y_x 为两点分布（≈-7.0000 以概率 1/2，>48 以概率 1/2），packetization phase transition 有精确解析结构。
 
-- x: UAV7 at 1-bit cell 0: g(b) 序列 = [-6.0, -6.0, -6.0, -6.0, -6.0, -6.0, -6.0, -6.0, -6.0, -6.0, -6.0]；monotone=True，concave=True；g'(8)=0.000 vs Pr(Y>8)=0.000；g'(16)=0.000 vs Pr(Y>16)=0.000（Δ=2 中心差分）；b⋆(x) = inf；E[Y_x] = -6.0000（b⋆<∞ ⟺ E[Y_x]≥0：PASS；E[Y_x]<0 ⇒ g≡E[Y] 平台：True）
-  - 非根状态 b⋆(x) = inf：b⋆ 随状态显著变化（根 ≈7 → 1-bit 子状态 = ∞），reachable-state 平均在 b=32 仍为负（B0.1a §4），证明 b⋆ 是 **state-dependent phase boundary**，不是全局阈值（007 §4 P1-D）；且 E[Y_x]=-6.0000<0 直接给出 **analytic certificate**：progressive dominates direct for every b_h ≥ 0（008 §6），无需扫 b。
+- x: UAV7 at 1-bit cell 0: g(b) 序列 = [-6.0, -6.0, -6.0, -6.0, -6.0, -6.0, -6.0, -6.0, -6.0, -6.0, -6.0]；monotone=True，concave=True；g'(8)=0.000 vs Pr(Y>8)=0.000；g'(16)=0.000 vs Pr(Y>16)=0.000（Δ=2 中心差分）；b⋆(x) = inf；E[Y_x] = -6.0000，ess sup Y = -6.0000（b⋆<∞ ⟺ E[Y_x]≥0：PASS；E[Y]<0 ⇒ g(b)≤E[Y]<0 ∀b：PASS；g≡E[Y] 平台（需 ess sup Y≤0）：True）
+  - 非根状态 b⋆(x) = inf：b⋆ 随状态显著变化（根 ≈7 → 1-bit 子状态 = ∞），reachable-state 平均在 b=32 仍为负（B0.1a §4），证明 b⋆ 是 **state-dependent phase boundary**，不是全局阈值（007 §4 P1-D）；且 E[Y_x]=-6.0000<0 直接给出 **analytic certificate**：progressive dominates direct for every b_h ≥ 0（008 §6），无需扫 b；此处 g≡E[Y] 平台成立是因为 ess sup Y=-6.0000≤0（009 §3：平台需 ess sup Y≤0，不能作为 E[Y]<0 的一般推论）。
 
-- x: UAV7 at 1-bit cell 1: g(b) 序列 = [-3.093, -3.093, -3.093, -3.093, -3.093, -3.093, -3.093, -3.093, -3.093, -3.093, -3.093]；monotone=True，concave=True；g'(8)=0.000 vs Pr(Y>8)=0.000；g'(16)=0.000 vs Pr(Y>16)=0.000（Δ=2 中心差分）；b⋆(x) = inf；E[Y_x] = -3.0932（b⋆<∞ ⟺ E[Y_x]≥0：PASS；E[Y_x]<0 ⇒ g≡E[Y] 平台：True）
-  - 非根状态 b⋆(x) = inf：b⋆ 随状态显著变化（根 ≈7 → 1-bit 子状态 = ∞），reachable-state 平均在 b=32 仍为负（B0.1a §4），证明 b⋆ 是 **state-dependent phase boundary**，不是全局阈值（007 §4 P1-D）；且 E[Y_x]=-3.0932<0 直接给出 **analytic certificate**：progressive dominates direct for every b_h ≥ 0（008 §6），无需扫 b。
+- x: UAV7 at 1-bit cell 1: g(b) 序列 = [-3.093, -3.093, -3.093, -3.093, -3.093, -3.093, -3.093, -3.093, -3.093, -3.093, -3.093]；monotone=True，concave=True；g'(8)=0.000 vs Pr(Y>8)=0.000；g'(16)=0.000 vs Pr(Y>16)=0.000（Δ=2 中心差分）；b⋆(x) = inf；E[Y_x] = -3.0932，ess sup Y = -0.1864（b⋆<∞ ⟺ E[Y_x]≥0：PASS；E[Y]<0 ⇒ g(b)≤E[Y]<0 ∀b：PASS；g≡E[Y] 平台（需 ess sup Y≤0）：True）
+  - 非根状态 b⋆(x) = inf：b⋆ 随状态显著变化（根 ≈7 → 1-bit 子状态 = ∞），reachable-state 平均在 b=32 仍为负（B0.1a §4），证明 b⋆ 是 **state-dependent phase boundary**，不是全局阈值（007 §4 P1-D）；且 E[Y_x]=-3.0932<0 直接给出 **analytic certificate**：progressive dominates direct for every b_h ≥ 0（008 §6），无需扫 b；此处 g≡E[Y] 平台成立是因为 ess sup Y=-0.1864≤0（009 §3：平台需 ess sup Y≤0，不能作为 E[Y]<0 的一般推论）。
 
 
 ## 8. G7 — bias correction vs variance reduction ablation（008 §3）
@@ -84,6 +84,6 @@
 | marg×ind | 9.4146 | 0.5733 | 11.9216 |
 | joint×ind | 5.4912 | 0.6200 | 10.9019 |
 | joint×paired | 5.7125 | 0.8667 | 0.8308 |
-- 解释：marg→joint 消除边缘独立导致的估计 bias（E|Q̂−Q| 下降），ind→paired 通过共享 world 降低 Var(Δ̂)（κ≈13.1225，008 §9：n_paired ≈ n_uncoupled/κ），P(match) 从 joint×ind 到 joint×paired 显著提升。注意：G1 的 0.088→0.870 还包含 B0.3a 的 oracle/gate 修正（P0-C/D），本消融只隔离 world 模型与配对耦合对固定估计器的影响（008 §3）。（47s）
+- 解释：marg→joint 消除边缘独立导致的估计 bias（E|Q̂−Q| 下降），ind→paired 通过共享 world 降低 Var(Δ̂)（κ≈13.1225，008 §9：n_paired ≈ n_uncoupled/κ），P(match) 从 joint×ind 到 joint×paired 显著提升。注意：G1 的 0.088→0.870 还包含 B0.3a 的 oracle/gate 修正（P0-C/D），本消融只隔离 world 模型与配对耦合对固定估计器的影响（008 §3）。（50s）
 
 

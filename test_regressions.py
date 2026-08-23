@@ -242,23 +242,36 @@ def run():
 
     # T17: certified => exact eps-ordering vs A U {STOP} (P0-B); deterministic
     # certificate-condition replay + loose statistical tail
-    # T17a (B0.3c, 008 §5): DETERMINISTIC certificate implication — given
-    # intervals [L_a, U_a] that cover the true Q_a for every a, the fired
-    # condition U_a_hat <= min_b L_b + eps must imply Q_a_hat <= min_b Q_b + eps.
-    # Pure logic: must PASS 100% of the time.
+    # T17a (B0.3c/009 §2): NON-VACUOUS deterministic certificate implication.
+    # A random candidate j (NOT argmin Q) is chosen; with intervals covering the
+    # true Q_a for every a, the fired condition U_j <= min_{b!=j} L_b + eps must
+    # imply Q_j <= min_b Q_b + eps.  (The old test used best=argmin Q, making the
+    # implication true regardless of the certificate — vacuous.)
     rng17a = np.random.default_rng(17)
     ok17a = True
-    for trial in range(2000):
+    for trial in range(5000):
         n_arms = int(rng17a.integers(2, 8))
         Q = rng17a.uniform(0.0, 100.0, n_arms)
         width = rng17a.uniform(0.0, 20.0, n_arms)
         L = Q - width                      # L_a <= Q_a
         U = Q + width                      # U_a >= Q_a
         eps = rng17a.uniform(0.0, 30.0)
-        best = int(np.argmin(Q))
-        if U[best] <= np.min(np.delete(L, best)) + eps:
-            ok17a &= (Q[best] <= np.min(Q) + eps + 1e-12)
-    check("T17a deterministic certificate implication (100% PASS)", ok17a)
+        j = int(rng17a.integers(0, n_arms))
+        if U[j] <= np.min(np.delete(L, j)) + eps:
+            ok17a &= (Q[j] <= np.min(Q) + eps + 1e-12)
+    check("T17a-report deterministic implication (non-vacuous)", ok17a)
+    # T17a-STOP: R_stop <= min_b L_b + eps  =>  R_stop <= min{R_stop, Q_b} + eps
+    ok17s = True
+    for trial in range(5000):
+        n_arms = int(rng17a.integers(1, 8))
+        Q = rng17a.uniform(0.0, 100.0, n_arms)
+        R0 = float(rng17a.uniform(0.0, 100.0))
+        width = rng17a.uniform(0.0, 20.0, n_arms)
+        L = Q - width
+        eps = rng17a.uniform(0.0, 30.0)
+        if R0 <= np.min(L) + eps:
+            ok17s &= (R0 <= min(R0, np.min(Q)) + eps + 1e-12)
+    check("T17a-STOP deterministic implication (non-vacuous)", ok17s)
 
     # T17b (B0.3c): empirical certificate audit (stochastic sanity; the strong
     # statistical gate is pipeline G3: 465 certified / 0 viol / U95=0.0064).
@@ -352,7 +365,7 @@ def run():
     Q_true19 = Q_ex16[(3, 4)]
     n_runs19, n_max19, delta19, nA19 = 100, 80, 0.1, 2
     c_a19 = 16.0 + 4                            # action (3,4): b_h + (4-0)
-    Bx19 = crA.bound_a(0, 40, c_a19)
+    Bx19 = crA.bound_a(0, 40, c_a19, action=(3, 4))
     cov19 = 0
     for r in range(n_runs19):
         crA.rng = np.random.default_rng(19000 + r)
@@ -405,6 +418,89 @@ def run():
     check("T21 MC natural P_D at eta_nat matches exact eval",
           abs(pd_nat_mc - res21["pd"]) < 3e-3,
           f"MC={pd_nat_mc:.4f} exact={res21['pd']:.4f} (eta_nat={eta_nat21:.3f})")
+
+    # ------------------------------------------------------------- T22-T24
+    print("\nT22-T24 B0.4 pairwise-difference CS (advice/009.md)")
+    from opmvs.rbl_eb import CRRBLEB, PairCS
+
+    # T22: PairCS anytime validity (statistical sanity; the strong gate is G0)
+    Delta22 = Q_ex16[(3, 4)] - Q_ex16[(2, 4)]
+    cov22 = 0
+    n_runs22, n_max22, alpha22 = 60, 150, 0.05
+    for r in range(n_runs22):
+        crA.rng = np.random.default_rng(22000 + r)
+        cs22 = PairCS(-400.0, 400.0, alpha22)
+        ok22 = True
+        for n in range(1, n_max22 + 1):
+            W = LatentWorld(crA, 0)
+            z = crA._rollout(0, 40, (3, 4), W) - crA._rollout(0, 40, (2, 4), W)
+            cs22.update(z)
+            L, U = cs22.bounds()
+            ok22 &= (Delta22 >= L and Delta22 <= U)
+        cov22 += int(ok22)
+    check("T22 PairCS anytime validity (statistical)",
+          cov22 / n_runs22 >= 1 - alpha22 - 0.06,
+          f"cov={cov22}/{n_runs22} (>= {1-alpha22-0.06:.2f})")
+
+    # T23: paired-difference estimator + canonical-orientation regression.
+    # The pair CS must ALWAYS see the canonical direction
+    # Z = G_{key0} - G_{key1} (here key0=(2,4), key1=(3,4) => Z = -(Ga-Gb));
+    # a planner whose candidate changes must never mix opposite-sign samples
+    # into one CS (the B0.4 sign bug), or the CS would miss the true Delta.
+    a23, b23 = (3, 4), (2, 4)
+    D23 = Q_ex16[a23] - Q_ex16[b23]           # Q_(3,4) - Q_(2,4) < 0
+    D_canon = -D23                            # Q_(2,4) - Q_(3,4) > 0
+    cs23 = PairCS(-400.0, 400.0, 0.005)
+    crA.rng = np.random.default_rng(23)
+    n23 = 1500
+    zsum = 0.0
+    z2sum = 0.0
+    for m in range(n23):
+        W = LatentWorld(crA, 0)
+        ga = crA._rollout(0, 40, a23, W)
+        gb = crA._rollout(0, 40, b23, W)
+        z = ga - gb                           # Delta_{a23,b23} sample
+        zsum += z
+        z2sum += z * z
+        cs23.update(-z)                       # canonical orientation, always
+    mean23 = zsum / n23
+    se23 = np.sqrt(max(z2sum / n23 - mean23 ** 2, 0.0) / n23)
+    L23, U23 = cs23.bounds()
+    check("T23 E[Z^{a,b}] = Q_a-Q_b in CI (canonical orientation)",
+          abs(mean23 - D23) <= 4.0 * se23 and L23 <= D_canon <= U23,
+          f"mean={mean23:.2f} exact={D23:.2f} canon={D_canon:.2f} "
+          f"CS=[{L23:.1f},{U23:.1f}]")
+
+    # T24: B0.4 certified => exact eps-ordering vs A U {STOP} (loose tail;
+    # exercises the full pairwise orientation path in plan()).
+    cr24 = CRRBLEB(quants, 256.0, 256.0 * np.exp(1.0), bhA, baseA,
+                   levels=(1, 2, 4), delta_c=1.0, seed=24)
+    cr24.cr._uavs = [int(np.argmax(GAMMA_A))]
+    rng24 = np.random.default_rng(24)
+    eps24, delta24, w24 = 40.0, 0.05, 2000
+    n_cert24, n_viol24 = 0, 0
+    for trial in range(20):
+        z = [0] * 4
+        for u in range(int(rng24.integers(0, 2))):
+            i = int(rng24.integers(0, 3))
+            r = (1, 2, 4)[int(rng24.integers(0, 3))]
+            z[i] = z_code_b(r, int(rng24.integers(0, 2 ** r)))
+        z[3] = z_code_b(1, int(rng24.integers(0, 2)))
+        x = sum(int(z[i]) * (sp.BASE_B ** i) for i in range(4))
+        cr24.cr.rng = np.random.default_rng(24000 + trial)
+        a_cr, info = cr24.plan(x, 40, eps=eps24, delta=delta24, max_worlds=w24)
+        if not info["certified"]:
+            continue
+        n_cert24 += 1
+        Q_ex24 = exact_qa_pi_b(cr24.cr, x, 40)
+        R0_24 = cr24.cr.pl.r_stop(x)
+        best24 = min(list(Q_ex24.values()) + [R0_24])
+        q_a24 = Q_ex24.get(a_cr, R0_24) if a_cr is not None else R0_24
+        if q_a24 > best24 + eps24:
+            n_viol24 += 1
+    check("T24 B0.4 certified => exact eps-ordering (loose tail)",
+          n_viol24 <= max(2, int(0.25 * max(n_cert24, 1))),
+          f"certified={n_cert24} viol={n_viol24} (eps={eps24:.0f})")
 
     print(f"\n=== {len(PASS)} passed, {len(FAIL)} failed ({time.time()-t0:.0f}s) ===")
     for name, d in FAIL:

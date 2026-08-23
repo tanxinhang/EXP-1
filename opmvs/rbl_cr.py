@@ -185,21 +185,48 @@ class CRRBL:
             total += k * self.b_h + (self.r_max - r)
         return total
 
+    def c_max_rem_after(self, x_int, i, r2):
+        """max future communication cost after refining UAV i to level r2
+        (cell-independent: c_max_rem depends only on the levels)."""
+        rem = int(x_int)
+        total = 0.0
+        for j in range(self.N):
+            z = rem % BASE_B
+            rem //= BASE_B
+            r, _ = z_decode_b(z)
+            if j == i:
+                r = r2
+            k = sum(1 for r3 in self.levels if r3 > r)
+            total += k * self.b_h + (self.r_max - r)
+        return total
+
     def bound(self, x_int):
         """Loose (budget-free) Hoeffding diameter: G_a <= c_max_rem(x) + R_max
         (kept for backward compatibility / reference)."""
         return self.c_max_rem(x_int) + self.R_max
 
-    def bound_a(self, x_int, h, c_a):
-        """Action-specific Hoeffding diameter under the HARD budget h (008 §4).
+    def bound_a(self, x_int, h, c_a, action=None):
+        """Action-specific Hoeffding diameter under the HARD budget h (008 §4,
+        proof wording corrected per 009 §4).
 
-        With C_T <= h pathwise, the rollout return satisfies
-            0 <= G_a - c_a <= min{ c_max_rem(x), h - c_a } + R_max
-        hence the tight deterministic diameter
-            D_a(x, h) = min{ c_max_rem(x), h } + R_max - c_a,
-        which for the root state is ~ (h + R_max - c_a) instead of the loose
-        (c_max_rem(x) + R_max - c_a) — e.g. H=48, N=8 root: ~422 vs ~950.
+        The total radio cost of any rollout from x satisfies
+            C_T <= min{ c_max_rem(x), h },
+        G_a = C_T + R_T with G_a >= c_a and R_T <= R_max, hence
+            G_a in [ c_a,  min{ c_max_rem(x), h } + R_max ]
+        and the deterministic diameter is
+            D_a(x, h) = min{ c_max_rem(x), h } + R_max - c_a
+        (NOT the intermediate statement 0 <= G_a - c_a <=
+        min{c_max_rem(x), h-c_a} + R_max, which is not generally equivalent).
+
+        Free tightening (009 §4): when the first action (i, r2) is known, the
+        continuation after it is bounded by min{ c_max_rem(x; a), h - c_a } +
+        R_max, giving D_a = min{ c_max_rem(x; a), h - c_a } + R_max  <=  the
+        general form (c_max_rem(x; a) <= c_max_rem(x) - c_a).
         """
+        if action is not None:
+            i, r2 = action
+            return min(self.c_max_rem_after(x_int, i, r2),
+                       float(h) - float(c_a)) + self.R_max
         return min(self.c_max_rem(x_int), float(h)) + self.R_max - float(c_a)
 
     # ------------------------------------------------------------ sampling
@@ -352,15 +379,15 @@ class CRRBL:
                           "n_rollouts": 0, "q_best": R0, "q_stop": R0,
                           "width_best": 0.0, "best": None}
         nA = len(actions)
-        # B0.3c (008 §4): action-specific Hoeffding diameter under the hard
-        # budget — D_a(x,h) = min{c_max_rem(x), h} + R_max - c_a (tighter than
-        # the loose B(x) = c_max_rem(x) + R_max used in B0.3a).
+        # B0.3c (008 §4) / B0.4 prelude (009 §4): action-specific Hoeffding
+        # diameter under the hard budget, tightened with the post-action max
+        # future cost: D_a = min{ c_max_rem(x; a), h - c_a } + R_max.
         c_of = {}
         for a in actions:
             i, r2 = a
             r_old, _ = z_decode_b(self._z_digit(x_int, i))
             c_of[a] = self.b_h + (r2 - r_old)
-        dia = {a: self.bound_a(x_int, h, c_of[a]) for a in actions}
+        dia = {a: self.bound_a(x_int, h, c_of[a], action=a) for a in actions}
         qhat = {a: 0.0 for a in actions}
         L = {a: 0.0 for a in actions}
         U = {a: 0.0 for a in actions}

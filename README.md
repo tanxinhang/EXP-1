@@ -66,12 +66,25 @@
   （100% PASS）+ T17b 经验审计，T19 标注为统计 sanity；**(6) E[Y_x] 存在性判据**
   （008 §6）：b⋆(x)<∞ ⟺ E[Y_x]≥0，E[Y_x]<0 ⇒ progressive dominates direct for
   every b_h≥0（根 EY=38.56>0↔b⋆=7；1-bit 子状态 EY<0↔b⋆=∞，analytically）。
+- **MVS-B0.4（依据 advice/009.md，主算法升级）**：**Pairwise-Difference Time-Uniform
+  EB-CS Planner**——直接估计 Δ_{a,b}=Q_a^{π_b}−Q_b^{π_b}（Z_t^{a,b}=G_a(W_t)−G_b(W_t)，
+  共享 latent world），取代 arm-wise Q_a+U_a−L_b；WSR-2023 betting martingale CS
+  （Ville 不等式、variance-adaptive λ、grid inversion，G0 anytime coverage 1.0 验证）；
+  **predictable candidate–challenger pair sampling**（(a_t,b_t) 由 F_{t−1} 决定、每 pair
+  α_ab 且 Σα_ab≤δ、**2 rollouts/world**，替代 B0.3c 的 32/world 全配对）；证书
+  U_{â,b}≤ε ∀b⟹Q_â≤min Q_b+ε（STOP 精确，只需 G_â−R_stop 单边）。实现中修复了 pair
+  canonical-orientation bug（candidate 切换会混入反号样本，破坏 CS）。Gates：G0 Pair-CS
+  validity PASS（coverage 1.0）；G1 sample efficiency——同 6000-world 预算下 EB certification
+  rate 0.68/0.70/0.83（ε=2/4/8）vs Hoeffding 0.03/0.03/0.08；G2 action quality——等 rollout
+  预算下与 B0.3c 可比（ε-opt(2)=0.925 vs 0.950，ε-opt(4)=0.970 vs 0.965，用 6–16× 更少
+  rollout）；G3 N=8 shallow near-tie-aware（H=24/34/40 的 Q(a)−Q_min ≤ 1.09 bits）；
+  G4 scaling（2 rollouts/world，总 rollout 与 |A| 无关）。
 - **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
   （Q_prog−Q_dir = E[min{D(x')−Δ₂, b_h}]，b_h=0 ⇒ 渐进支配）；q<7/23 降为 Corollary 并新增
   E[C_future|M^(1)]<7 判据；feedback/setup 成本（b_setup）敏感性；正式 regression test suite
-  （30 项全过）；创新定位：**Feedback-Granularity-Aware Adaptive Evidence Acquisition**。
+  （all checks PASS）；创新定位：**Feedback-Granularity-Aware Adaptive Evidence Acquisition**。
 - **MVS-B0（依据 adcice/004.md）**：**sparse tuple-state backend**
   （状态 x=(z_1..z_N)、Ω 现场计算、动作/PMF on-demand、memo key (x,h)、
   279^8 不建全表）；N=4 与旧 eager 表等价认证（B0-G0）；N=8/R={1,2,4,8}
@@ -93,8 +106,9 @@ Exp-1/
 ├── run_mvsb01.py           # MVS-B0.1 流水线：可信度修复 + VoI 定理 + Adaptive Direct-8
 ├── run_mvsb01a.py          # MVS-B0.1a 补丁：seed-aware POTS + ΔQ 相变 + 保守 lattice
 ├── run_mvsb03.py           # B0.3 CR-RBL：认证 rollout 规划器（主交付）
-├── run_mvsb03a.py          # B0.3a credibility patch：paired CRN + STOP 证书 + 硬预算 + b⋆(x) 相变
-├── test_regressions.py     # 正式 regression test suite（30 项数学不变量）
+├── run_mvsb03a.py          # B0.3a/B0.3c credibility + closure patch（paired CRN + STOP 证书 + 硬预算 + b⋆ 相变）
+├── run_mvsb04.py           # B0.4 pairwise-difference EB-CS planner（主算法升级）
+├── test_regressions.py     # 正式 regression test suite（all checks PASS）
 ├── smoke_test.py           # 核心模块快速冒烟测试
 ├── requirements.txt
 ├── opmvs/                  # MVS-A 实现包
@@ -107,7 +121,8 @@ Exp-1/
 │   ├── rbl.py              # R2: resource-bounded lookahead + (idx,h) 精确传播 + OnlinePlanner
 │   ├── cmdp.py             # R2.1: CMDP column generation（LP master + ExactDP pricing）
 │   ├── sparse.py           # MVS-B0: sparse tuple-state planner（279^8 不建表）
-│   ├── rbl_cr.py           # B0.3/B0.3a: CR-RBL（LatentWorld paired CRN + STOP 证书 + exact_qa_pi_b）
+│   ├── rbl_cr.py           # B0.3/B0.3c: CR-RBL（LatentWorld paired CRN + STOP 证书 + exact_qa_pi_b）
+│   ├── rbl_eb.py           # B0.4: pairwise-difference EB-CS planner（betting CS + candidate-challenger）
 │   ├── eval_exact.py       # R1: 精确前向概率传播 + G1a/G1b + 精确 P_D,max
 │   ├── baselines.py        # B0–B11 + 公平基线精确 table-policy 构建
 │   ├── mc.py               # 向量化 Monte Carlo + 随机化 Neyman-Pearson 评估
@@ -121,7 +136,8 @@ Exp-1/
     ├── MVS-B0.1_report.md      # MVS-B0.1 可信度修复 + 理论拔高报告
     ├── MVS-B0.1a_report.md     # B0.1a 补丁报告
     ├── MVS-B0.3_report.md      # B0.3 CR-RBL 认证 rollout 报告（主交付）
-    ├── MVS-B0.3a_report.md     # B0.3a credibility patch 报告（paired CRN/STOP 证书/硬预算/b⋆ 相变）
+    ├── MVS-B0.3a_report.md     # B0.3a/B0.3c credibility + closure patch 报告
+    ├── MVS-B0.4_report.md      # B0.4 pairwise-difference EB-CS planner 报告（主算法升级）
     └── figures/            # 量化器 / Pareto / 精度审计 / R1 / R2 / R2.1 图
 ```
 
@@ -139,7 +155,8 @@ python run_mvsb01.py         # MVS-B0.1 流水线（约 20–30 分钟）
 python run_mvsb01a.py        # MVS-B0.1a 补丁（约 1 分钟）
 python run_mvsb03.py         # B0.3 CR-RBL（约 6–10 分钟，推荐）
 python run_mvsb03a.py        # B0.3a/B0.3c credibility + closure patch（约 6–10 分钟，推荐）
-python test_regressions.py   # regression suite（约 5–6 分钟，32 项：30 不变量/审计 + T17a 拆分 + T21）
+python run_mvsb04.py         # B0.4 pairwise-difference EB-CS planner（约 5–8 分钟，主算法升级）
+python test_regressions.py   # regression suite（约 5–7 分钟；运行结束打印 all checks PASS）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
 python run_mvsa_r11.py --smoke
@@ -195,16 +212,12 @@ python smoke_test.py         # 核心模块自检
     动作/值全等价（0 不一致）；部署时 root 求解稀疏率 ~3%；
   - η_rec（重定义，用 B_CMDP\* 与 receding H<16 的 B_RBL）达标硬 Gate ≥50%。
 
-## 下一步（依据 advice/008.md 的新顺序，MVS-A 封板）
+## 下一步（依据 advice/008/009.md 的顺序，MVS-A 封板）
 
 MVS-A 的 G0/G1a/G1b/G2 + R2.1-G0..G4 全部通过，按 003.md 冻结，不再继续优化。
-MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c 已按 004/005/006/007/008 完成。审计 008 的新顺序
-（B0.5 移到 B0.6 之后，避免"理论漂亮但通信收益未定"）：
+MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c/B0.4 已按 004/005/006/007/008/009 完成。
+审计 009 确认 B0.3c 封板、B0.4 达成（B0.5 移到 B0.6 之后）：
 
-- **B0.4**：**paired-difference time-uniform EB-CS**——每次选一对 (a_t, b_t)，在共享
-  world W_t 上得 Z_t^{a,b}=G_a(W_t)−G_b(W_t)，对 Δ_{a,b}=Q_a^{π_b}−Q_b^{π_b} 直接建
-  EB 置信序列（U_{â,b}≤ε ∀b ⟹ Q_â≤min_b Q_b+ε；STOP 已知，只需对 G_a−R_stop 建单边 CS）；
-  采样结构回到 candidate–challenger pair（2 rollouts/world，替代当前 32/world 的全配对）；
 - **B0.4a**：uncertified ⇒ **fallback to base policy**；certified policy improvement
   （U(D_a)<0 才 override，D_a=Q_a^{π_b}−Q_{a_b}^{π_b}）；one-step conditional-VoI base
   a_b(x)=argmin_a[c_a+E[R_stop(X')|x,a]] 替换 SNR-base 做 ablation；
