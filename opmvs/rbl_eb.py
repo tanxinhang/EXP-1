@@ -564,9 +564,16 @@ class CPI:
         """
         cr = self.cr
         om = cr.pl.omega(x_int)
-        a_b = self.base.act(cr.pl, x_int, om, h=h)      # budget-aware anchor
         actions_feas, R0 = self._arms(x_int, h)
         actions = [a for a in actions_feas if a is not None]
+        # budget-aware anchor (012 §5 / B0.6-pre-r P0-1): pi_b(x, h) = the
+        # base's nominal action IF affordable at h, else STOP — the base's
+        # own act() may ignore h (SNR base), so the CPI clamps the anchor to
+        # the FEASIBLE set; an unaffordable nominal action means the
+        # budget-aware base stops (rollout budget check, rbl_cr._rollout).
+        a_b = self.base.act(cr.pl, x_int, om, h=h)
+        if a_b is not None and a_b not in actions_feas:
+            a_b = None
         if not actions:
             return a_b, {"override": False, "a_b": a_b, "n_worlds": 0,
                          "n_rollouts": 0, "n_certified": 0}

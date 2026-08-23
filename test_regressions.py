@@ -30,6 +30,8 @@ not a tuning issue.  The suite covers:
   T29 right/left derivative of g_x = survival Pr(Y>b)/Pr(Y>=b) (B0.4b)
   T30 three synthetic branches E[Y]<0 / =0 / >0 incl. E[Y]=0 plateau (B0.4b)
   T31 exact-support b*(x) = strategy switch point of Q_prog vs Q_dir (B0.4b)
+  T32 CPI budget-aware anchor clamp: nominal base action unaffordable at
+      (x, h) => anchor = STOP, no crash, a_exec feasible (B0.6-pre-r, 014 §1)
 
 Deterministic invariants (T01-T15, T17a, T18, T20 identity part): a failure is a bug.
 Statistical audits (T16, T17b, T19, T20 variance part): assertions carry explicit
@@ -729,6 +731,25 @@ def run():
     check("T31 exact-support b* = strategy switch point",
           n_switch_ok == n_switch,
           f"{n_switch_ok}/{n_switch} cases={n_cases}")
+
+    # T32 (014 §1 P0-1 / B0.6-pre-r): budget-aware anchor clamp — when the
+    # base's nominal action is UNAFFORDABLE at (x, h), the CPI anchor must
+    # clamp to STOP (012 §5 budget-aware pi_b), never crash on
+    # actions_feas[a_b] and never return an infeasible a_exec.
+    snr32 = SNRDirectBase(quants, GAMMA_A, bhA, eta_b=2.0, levels=(1, 2, 4))
+    cr32 = CRRBL(quants, 256.0, 256.0 * np.exp(1.0), bhA, snr32,
+                 levels=(1, 2, 4), delta_c=1.0, seed=7)
+    ok32 = True
+    for trial, h32 in enumerate((17.0, 18.0, 19.0, 20.0, 21.0, 22.0)):
+        cpi32 = CPI(quants, 256.0, 256.0 * np.exp(1.0), bhA, snr32,
+                    levels=(1, 2, 4), delta_c=1.0, seed=3, cs_mode="betting")
+        cpi32.cr.rng = np.random.default_rng(32000 + trial)
+        a32, info32 = cpi32.decide(0, h32, delta_t=0.03, max_worlds=200)
+        feas32 = cr32.feasible_actions(0, h32)
+        ok32 &= (a32 is None or a32 in feas32)
+        ok32 &= (info32["a_b"] is None or info32["a_b"] in feas32)
+    check("T32 CPI budget-aware anchor clamp (h < nominal cost => STOP)",
+          ok32)
 
     print(f"\n=== {len(PASS)} passed, {len(FAIL)} failed ({time.time()-t0:.0f}s) ===")
     for name, d in FAIL:
