@@ -5,7 +5,7 @@
 > 设计依据：耦合效率 κ = (σ_a²+σ_b²)/Var(G_a−G_b) ≈ 13（008 §9 实测），
 > 所以『不要更精确估计 Q_a，直接更精确估计决策所需的 Q_a−Q_b』（009 §12）。
 
-> 生成时间: 2026-08-23 14:16:04   模式: FULL
+> 生成时间: 2026-08-23 15:15:40   模式: FULL
 
 ## 1. G0 — Pair-CS anytime validity（exact Δ_{a,b}，N=4；formal EB + betting 消融）
 
@@ -22,7 +22,7 @@
 | E1 | pair/EB/challenger/shared | 0.9333 | 17288.0000 |
 | E0 | pair/EB/challenger/independent | 0.3333 | > 24000 |
 - 解读（010 §4）：**H0→H1**（arm→pair statistic + challenger 采样）本身不带来认证收益——sparse pair sampling 使每个 pair 样本变少，pair-Hoeffding 用全 range 反而更宽；**H1→E1**（pair-Hoeffding→variance-adaptive EB）才是 CS 的贡献：E1 用 ~2× 更少 rollout 完成认证；**E0→E1**（independent→shared world）是 nested CRN coupling 的贡献：无耦合时 E0 在预算内无法认证。κ≈13 因此被拆成『pairwise statistic + variance-adaptive CS』与『coupling』两段因果。
-（61s）
+（63s）
 
 ## 3. G2 — hard rollout-budget action-quality curves（010 §5，P(Q−Q_min ≤ 2) vs R）
 
@@ -33,7 +33,7 @@
 | 6000 | 0.8833 | 0.9667 | 5313.2833 | 5998.1500 |
 | 12000 | 0.8833 | 0.9833 | 10923.3667 | 11997.5667 |
 - 解读：R 为**硬 rollout 预算**（两 planner 都在 n_rollouts ≥ R 停止，010 §5）；B0.4 的 worlds 数高于 B0.3c（每 world 只做 2 个 rollout 而非 |A| 个），但每 world 成本低 |A|/2 倍；曲线显示动作质量随 R 的 tradeoff。**certified 决策由证书保证 ε-optimal（≈1−δ）**；未认证执行问题按 009 §13 交 B0.4a。
-（88s）
+（91s）
 
 ## 4. G3 — N=8 shallow oracle（H=24/34/40，near-tie-aware）
 
@@ -52,4 +52,4 @@
 
 - **per-world rollout complexity 从 O(|A|) 降到 O(1)**（010 §6）：B0.3c 全配对每 world 需要 |A| 个 rollout（N=8 root |A|=32），B0.4 candidate–challenger 每 world 固定 2 个（challenger=STOP 时 1 个）。但**总 certification complexity 仍依赖 |A|**：置信分配 α_ab=δ/P 带 log P = O(log|A|) 项、challenger 搜索每轮 O(|A|)、pair-CS 存储最坏 O(|A|²)、更多 arms 需要更多 worlds 排除潜在 challenger——因此不是『与 UAV 数无关』，而是 per-world O(1)（UAV 数增加不放大单 world 的 rollout 成本）。
 
-总耗时: 170.2s
+总耗时: 172.6s
