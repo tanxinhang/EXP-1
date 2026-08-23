@@ -134,6 +134,15 @@
   packetization phase transition + g'ₓ(b)=P(additional feedback transaction)**，
   与 B0.4/B0.4a 的 paired-difference certified acquisition 组合；不自称
   "adaptive quantization" 本身新颖。
+- **MVS-B0.6-pre（依据 advice/008.md §14 + 013 final，先验收算法）**：**N=4 exact /
+  N=8 shallow sample-complexity gate**——验收 B0.6 每步决策部署的 CPI acquisition：
+  G0 N=4 exact P(gap≤2)/E[gap] vs 世界预算 W（base ablation 定 012 §6 的 anchor：SNR
+  略优、VoI 为理论 anchor）；G1 N=4 formal certification（eb-mode，按 base 真 gap≥15
+  分层——MP+peeling 的 range-scaling 项 7t(hi−lo)/(3(n−1)) 使小 gap 认证昂贵，实测
+  W=4000 时 0/9、W=8000 时 9/9 override，即 gap≥15 在 ~8k worlds 内可正式认证）；
+  G2 N=8 shallow（H=40，oracle=sparse exact Q^{π_b}）；G3 sample-complexity 记账 +
+  B0.6 可行性（G0 曲线取 w_ep ⇒ 800 episodes × 3 decisions 的 matched-QoS 模拟预计
+  <10 min）。四 Gate 全 PASS ⇒ 算法验收通过。
 - **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
@@ -213,6 +222,7 @@ python run_mvsb03a.py        # B0.3a/B0.3c credibility + closure patch（约 6�
 python run_mvsb04.py         # B0.4 pairwise-difference EB-CS planner（约 5–8 分钟，主算法升级）
 python run_mvsb04a.py        # B0.4a Certified Policy Improvement（约 8–15 分钟）
 python run_mvsb04b.py        # B0.4b phase-transition 定理封板（约 10 秒）
+python run_mvsb06pre.py      # B0.6-pre sample-complexity gate（约 4–15 分钟）
 python test_regressions.py   # regression suite（约 5–7 分钟；运行结束打印 all checks PASS）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
@@ -272,16 +282,15 @@ python smoke_test.py         # 核心模块自检
 ## 下一步（依据 advice/008/009.md 的顺序，MVS-A 封板）
 
 MVS-A 的 G0/G1a/G1b/G2 + R2.1-G0..G4 全部通过，按 003.md 冻结，不再继续优化。
-MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c/B0.4/B0.4r/B0.4s/B0.4a/B0.4a-r/B0.4b 已按
+MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c/B0.4/B0.4r/B0.4s/B0.4a/B0.4a-r/B0.4b/B0.6-pre 已按
 004/005/006/007/008/009/010/011/012/013 完成。审计 011 确认 B0.4a 的 CPI 落地
 （B0.5 移到 B0.6 之后）；审计 012 完成 B0.4a-r credibility closure；审计 013 完成
-B0.4b 纯理论封板（Feedback-Granularity Phase-Transition Theorem，见上文 B0.4b
-bullet）——**B0.4 系列至此结束，不再继续优化**：
+B0.4b 纯理论封板（**B0.4 系列结束**）；B0.6-pre 算法验收通过（见上文 bullet）：
 
-- **B0.4a/B0.4a-r/B0.4b**（已完成）：uncertified ⇒ base（VoI-base fallback）；
+- **B0.4a/B0.4a-r/B0.4b/B0.6-pre**（已完成）：uncertified ⇒ base（VoI-base fallback）；
   certified override（U_{c,a_b}<0，base-anchored）；Formal/Operational CPI 分离；
-  phase-transition 主定理 + exact b⋆（root=7.0000，三情形分类）；
-- **B0.6-pre**：N=4 exact / N=8 shallow sample-complexity gate（先验收算法）；
+  phase-transition 主定理 + exact b⋆（root=7.0000，三情形分类）；sample-complexity
+  验收（N=4 exact / N=8 shallow 全 PASS，B0.6 模拟预计 <10 min）；
 - **B0.6**：matched QoS + CI，CR vs Direct8/POTS（**论文生死 Gate**：P_FA^CR≤α、
   P_MD^CR≤β、E[B]^CR<E[B]^D8 with CI）——若 E[B]^CR≥E[B]^Direct8，论文诚实结论为
   "phase transition 存在、但当前 regime 最优策略落在 direct-packetization regime"；
