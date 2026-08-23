@@ -1,29 +1,30 @@
-"""MVS-B0.4a: Certified Policy Improvement (advice/011.md §3-§8).
+"""MVS-B0.4a/B0.4a-r: Certified Policy Improvement (advice/011.md §3-§8,
+advice/012.md B0.4a-r credibility closure).
 
 Base by default; override only with certified evidence of improvement:
-    a_inc^(0) = a_b = pi_b(x, h),
-    a_inc -> c only when U_{c,a_inc} < 0   (Q_c^{pi_b} < Q_{a_inc}^{pi_b}),
-so on the confidence event the executed chain is strictly decreasing in
-Q^{pi_b} and V^{pi_CPI} <= V^{pi_b} (policy improvement over the finite acyclic
-evidence DAG).  Episode-level delta: decision t spends
-delta_t = 6 delta_episode / (pi^2 t^2); within a decision every possible pair
-gets alpha = delta_t / P, so P(all executed overrides valid) >= 1 - delta_episode.
+    a_b = pi_b(x, h)   (BUDGET-AWARE base, 012 §5: base.act(pl, x, om, h)),
+    a_exec = a_b unless some candidate c has U_{c,a_b} < 0
+    (Q_c^{pi_b} < Q_{a_b}^{pi_b} certified by the pairwise CS).
+Base-anchored O(|A|) confidence allocation (012 §4 方案 A): every candidate is
+compared only against the original a_b,  alpha_c = delta_t / n_cand.
+Episode-level delta (011 §5): decision t spends delta_t = 6 delta_episode /
+(pi^2 t^2); independent states are first decisions and use delta_1 (012 §3 —
+the stale-delta_t bug is fixed).
 
-The base is the one-step conditional-VoI base (011 §7):
-    Q_a^(1) = c_a + E[R_stop(X')|x,a],  a_VoI = argmin over A_h^+(x),
-which is objective-consistent and automatically uses the header/setup cost,
-the current posterior and the message resolution.
+Formal vs Operational (012 §1): cs_mode="eb" = Formal-CPI (theorem-backed
+PrPl-EB, carries the safety claim); cs_mode="betting" = Operational-CPI
+(finite-grid experimental CS, performance exploration only, NO strict
+confidence guarantee).  The 11 earlier 'certified overrides' were operational
+evidence, not formal certification.
 
-Gates (011 §8 — the four scientific questions):
-  G0  fallback tail: empirical-best vs SNR-base vs VoI-base — E[gap],
-      P(gap>2), P(gap>4) (does the fallback eliminate the uncertified tail?);
-  G1  override benefit: P(override) and E[Q_{a_b} - Q_{a_override} | override];
-  G2  certified override safety on the N=4 exact oracle (matched base):
-      Q_{a_override} <= Q_{a_b}, violations + binomial U95;
-  G3  VoI-base strength: VoI-base vs SNR-base vs CPI-executed vs
-      empirical-best action quality.
-All Q values are evaluated under the SAME base (the VoI-base) that the CPI
-rollouts follow — the B0.4a exact oracle must match the rollout base.
+Gates:
+  G0  fallback tail: empirical-best vs SNR-base vs VoI-base;
+  G1/G2  2x2 CPI matrix (base x mode) — P(override), E[gain|override],
+      P(gap>2), violations/U95; G2 framed as UNCERTAIN unless >= 59 overrides
+      with 0 violations (012 §2);
+  G3  t-scan P_override(t) for t in {1,2,4,8} (episode-level delta);
+  G4  VoI-base strength (better theoretical vs performance anchor, 012 §6).
+All Q values use the MATCHED base oracle (the same pi_b the rollouts follow).
 """
 from __future__ import annotations
 
@@ -67,9 +68,9 @@ def main():
     ap.add_argument("--smoke", action="store_true")
     args = ap.parse_args()
     SMOKE = args.smoke
-    n_state = 30 if SMOKE else 100
-    w_cpi = 1500 if SMOKE else 3000          # betting-mode CPI worlds per decision
-    w_eb = 2000 if SMOKE else 6000           # formal-EB override rate subset
+    n_state = 30 if SMOKE else 60
+    w_cpi = 1500 if SMOKE else 2000          # Operational-CPI worlds per decision
+    w_eb = 2000 if SMOKE else 6000           # Formal-CPI worlds (subset)
     n_eb = 6 if SMOKE else 15
     delta_episode = 0.05
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -141,79 +142,100 @@ def main():
     out("")
 
     # ------------------------------------------------------------ G1/G2
-    out("## 2. G1/G2 — override 收益与 certified override 安全性（011 §8-2/§8-3）")
+    out("## 2. G1/G2 — 2×2 CPI matrix（base × mode）与 override 收益/安全（011 §8-2/§8-3）")
     out("")
-    n_ov = 0
-    n_ov_eb = 0
-    n_safe = 0
-    n_viol = 0
-    gains = []
-    gap_base = []
-    gap_cpi = []
-    n_tested = 0
-    for s in range(n_state):
-        x = random_state4(rng, 500000 + s)
-        Qp = exact_qa_pi_b(cr_voi, x, 40)          # matched base oracle
-        if not Qp:
-            continue
-        R0 = cr_voi.pl.r_stop(x)
-        Qmin = min(list(Qp.values()) + [R0])
-        om = cr_voi.pl.omega(x)
-        a_b = voi.act(cr_voi.pl, x, om, h=40)
-        qb = R0 if a_b is None else Qp.get(a_b, np.inf)
-        cpi = CPI(quants4, muM, muF, bh, voi, levels=(1, 2, 4),
-                  delta_c=1.0, seed=3, cs_mode="betting")
-        cpi.cr.rng = np.random.default_rng(6000 + s)
-        delta_t = 6.0 * delta_episode / (np.pi ** 2 * (s + 1) ** 2)   # 011 §5
-        a_e, info = cpi.decide(x, 40, delta_t=delta_t, max_worlds=w_cpi)
-        qe = R0 if a_e is None else Qp.get(a_e, np.inf)
-        n_tested += 1
-        gap_base.append(max(0.0, qb - Qmin))
-        gap_cpi.append(max(0.0, qe - Qmin))
-        if info["override"]:
-            n_ov += 1
-            gains.append(qb - qe)
-            n_safe += int(qe <= qb + 1e-9)
-            n_viol += int(qe > qb + 1e-9)
-    out(f"- betting-mode CPI（{w_cpi} worlds/decision，δ_episode={delta_episode}，"
-        f"决策 t 用 δ_t=6δ/(π²t²)）：")
-    out(f"  - **P(override) = {fmt(n_ov / max(n_tested, 1))}**；"
-        f"**E[Q_{{a_b}} − Q_{{a_override}} | override] = {fmt(np.mean(gains) if gains else 0.0)}**")
-    out(f"  - **certified override 安全性**（N=4 exact，matched base）：safe={n_safe}，"
-        f"violations={n_viol}；单侧 95% binomial U95 = "
-        f"{fmt(float(beta_dist.ppf(0.95, n_viol + 1, max(n_safe, 1))))}"
-        f"（certified override 只在 U<0 时执行——理论 P(violation) ≤ Σδ_t）")
-    out(f"  - 执行质量：base E[gap]={fmt(np.mean(gap_base))}（P(>2)={fmt(np.mean(np.array(gap_base) > 2))}）"
-        f"→ CPI E[gap]={fmt(np.mean(gap_cpi))}（P(>2)={fmt(np.mean(np.array(gap_cpi) > 2))}）")
-    # formal-EB override rate on a subset
-    n_ov_eb = 0
-    for s in range(n_eb):
-        x = random_state4(rng, 550000 + s)
-        Qp = exact_qa_pi_b(cr_voi, x, 40)
-        if not Qp:
-            continue
-        R0 = cr_voi.pl.r_stop(x)
-        om = cr_voi.pl.omega(x)
-        a_b = voi.act(cr_voi.pl, x, om, h=40)
-        qb = R0 if a_b is None else Qp.get(a_b, np.inf)
-        cpi = CPI(quants4, muM, muF, bh, voi, levels=(1, 2, 4),
-                  delta_c=1.0, seed=3, cs_mode="eb")
-        cpi.cr.rng = np.random.default_rng(7000 + s)
-        a_e, info = cpi.decide(x, 40, delta_t=delta_t, max_worlds=w_eb)
-        qe = R0 if a_e is None else Qp.get(a_e, np.inf)
-        n_ov_eb += int(info["override"] and qe <= qb + 1e-9)
-    out(f"  - formal PrPl-EB 路径（{w_eb} worlds，n={n_eb}）：safe override rate = "
-        f"{fmt(n_ov_eb / max(n_eb, 1))}——formal 证书保守，override 需更大预算"
-        f"（011 §9 预期：override 比 full best-arm 容易，但 EB 的 peeling 开销仍在）。")
+    out("- **Formal-CPI**（cs_mode=eb，theorem-backed PrPl-EB）承担 safety claim；"
+        "**Operational-CPI**（cs_mode=betting，finite-grid 实验 CS）只承担性能探索，"
+        "不承担严格置信保证（012 §1）。独立状态都是 episode 的第一个决策，统一用 "
+        "δ_1 = 6δ_episode/π²（012 §3 修复 stale δ_t bug）。")
+    out("")
+    delta_1 = 6.0 * delta_episode / (np.pi ** 2)
+    for base, btag in ((voi, "VoI"), (snr, "SNR")):
+        cr_b = CRRBL(quants4, muM, muF, bh, base, levels=(1, 2, 4),
+                     delta_c=1.0, seed=7)
+        for mode, mtag, w in (("betting", "Operational", w_cpi),
+                              ("eb", "Formal", w_eb)):
+            n_ov = 0
+            n_safe = 0
+            n_viol = 0
+            gains = []
+            gap_base = []
+            gap_cpi = []
+            n_tested = 0
+            n_states = n_state if mode == "betting" else n_eb
+            for s in range(n_states):
+                x = random_state4(rng, 500000 + s)
+                Qp = exact_qa_pi_b(cr_b, x, 40)       # matched base oracle
+                if not Qp:
+                    continue
+                R0 = cr_b.pl.r_stop(x)
+                Qmin = min(list(Qp.values()) + [R0])
+                om = cr_b.pl.omega(x)
+                a_b = base.act(cr_b.pl, x, om, h=40)
+                qb = R0 if a_b is None else Qp.get(a_b, np.inf)
+                cpi = CPI(quants4, muM, muF, bh, base, levels=(1, 2, 4),
+                          delta_c=1.0, seed=3, cs_mode=mode)
+                cpi.cr.rng = np.random.default_rng(6000 + s)
+                a_e, info = cpi.decide(x, 40, delta_t=delta_1, max_worlds=w)
+                qe = R0 if a_e is None else Qp.get(a_e, np.inf)
+                n_tested += 1
+                gap_base.append(max(0.0, qb - Qmin))
+                gap_cpi.append(max(0.0, qe - Qmin))
+                if info["override"]:
+                    n_ov += 1
+                    gains.append(qb - qe)
+                    n_safe += int(qe <= qb + 1e-9)
+                    n_viol += int(qe > qb + 1e-9)
+            u95 = float(beta_dist.ppf(0.95, n_viol + 1, max(n_safe, 1))) \
+                if n_safe > 0 else 1.0
+            out(f"- **{mtag}-CPI@{btag}**（{w} worlds，δ₁={fmt(delta_1, 2)}）："
+                f"P(override)={fmt(n_ov / max(n_tested, 1))}，"
+                f"E[gain|override]={fmt(np.mean(gains) if gains else 0.0)}，"
+                f"base E[gap]={fmt(np.mean(gap_base))}（P(>2)={fmt(np.mean(np.array(gap_base) > 2))}）→ "
+                f"CPI E[gap]={fmt(np.mean(gap_cpi))}（P(>2)={fmt(np.mean(np.array(gap_cpi) > 2))}）；"
+                f"overrides={n_safe} safe / {n_viol} violations，U95={fmt(u95)}")
+    out("- **G2 统计口径（012 §2）**：0 violation 时需 **≥59 个 overrides** 才能让单侧 "
+        "95% binomial 上界 ≤ 0.05；当前 override 数不足以经验认证 5% violation rate——"
+        "表述为 **0 observed violations, but insufficient override count for a 5% "
+        "violation-rate certification（UNCERTAIN，非 FAIL）**；理论的 P(violation) ≤ Σδ_t "
+        "是 Formal-CPI 的保证，经验 U95 是 sanity check。")
+    out("")
+    # t-scan: P_override(t) for t in {1,2,4,8} (012 §3 — episode-level delta)
+    out("## 3. t-scan — episode 内决策序号 t 对 override rate 的影响（012 §3）")
+    out("")
+    n_tscan = 15 if SMOKE else 25
+    out("| t | δ_t = 6δ/(π²t²) | P(override) |")
+    out("| --- | --- | --- |")
+    for t in (1, 2, 4, 8):
+        dt = 6.0 * delta_episode / (np.pi ** 2 * t * t)
+        n_ov = 0
+        n_t = 0
+        for s in range(n_tscan):
+            x = random_state4(rng, 700000 + s)
+            Qp = exact_qa_pi_b(cr_voi, x, 40)
+            if not Qp:
+                continue
+            cpi = CPI(quants4, muM, muF, bh, voi, levels=(1, 2, 4),
+                      delta_c=1.0, seed=3, cs_mode="betting")
+            cpi.cr.rng = np.random.default_rng(7500 + s)
+            a_e, info = cpi.decide(x, 40, delta_t=dt, max_worlds=w_cpi)
+            n_t += 1
+            n_ov += int(info["override"])
+        out(f"| {t} | {fmt(dt, 4)} | {fmt(n_ov / max(n_t, 1))} |")
+    out("- 真正的 episode-level δ_t 需在实际 receding episode trajectory 中测试"
+        "（012 §3；此处是独立状态 × 决策序号 t 的近似）。")
     out("")
 
     # ------------------------------------------------------------ G3
-    out("## 3. G3 — VoI-base 强度：VoI-base vs SNR-base vs CPI vs empirical-best（011 §8-4）")
+    out("## 4. G3 — VoI-base 强度：VoI-base vs SNR-base vs CPI vs empirical-best（011 §8-4）")
     out("")
     out("- 综合：若 VoI-base ≈ CPI，论文应强调 feedback granularity + conditional VoI；"
         "若 CPI 在 VoI-base 之上有明确增益，pairwise certified planning 才有独立算法价值。"
-        "（G0 的 voi-base 行 = VoI-base 本身；G1 的 CPI 行 = certified improvement 之上；"
-        "两者之差即 pairwise planner 的边际价值。）")
+        "（G0 的 voi-base/snr-base 行 = 各 base 本身；G1 的 CPI 行 = certified improvement "
+        "之上；两者之差即 pairwise planner 的边际价值。）")
+    out("- 012 §6 结论：VoI-base 目前是 **better theoretical anchor 而非 better performance "
+        "anchor**（G0 显示 SNR-base 的 P(gap>2) 更低）——最终算法可用 VoI 作 candidate "
+        "ranking、SNR 作 safe anchor，或反之，需 B0.6 前的 ablation 决定。")
     out("")
 
     out(f"总耗时: {time.time() - t_start:.1f}s")

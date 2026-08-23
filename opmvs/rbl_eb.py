@@ -500,28 +500,35 @@ class VoIBase:
 
 
 class CPI:
-    """B0.4a Certified Policy Improvement (011 §3-§6, §9).
+    """B0.4a/B0.4a-r Certified Policy Improvement (011 §3-§6, 012 §4-§5).
 
     Base by default; override only with certified evidence of improvement:
-        a_inc^(0) = a_b = pi_b(x, h),
-        a_inc -> c  only when  U_{c, a_inc} < 0   (Q_c^{pi_b} < Q_{a_inc}^{pi_b}
-        certified by the pairwise CS; STOP's value R_stop(x) is exact).
-    The executed action is the final incumbent.  On the confidence event the
-    incumbent chain is strictly decreasing in Q^{pi_b}, so the one-step
-    deviation argument for the finite acyclic evidence DAG gives
-        V^{pi_CPI}(x) <= V^{pi_b}(x),  hence  J^{pi_CPI} <= J^{pi_b}
-    with prob >= 1 - delta_episode (011 §4).
+        a_b = pi_b(x, h)  (BUDGET-AWARE base, 012 §5: the base policy is
+        defined on the augmented state (x, h) — the CPI anchor, the MC
+        rollouts and the exact oracle all call base.act(pl, x, om, h)),
+        a_exec = a_b unless some candidate c has U_{c, a_b} < 0
+        (Q_c^{pi_b} < Q_{a_b}^{pi_b} certified by the pairwise CS; STOP's
+        value R_stop(x) is exact).
+
+    B0.4a-r (012 §4 方案 A): BASE-ANCHORED confidence allocation — every
+    candidate is compared ONLY against the original a_b, so there are at most
+    |A| pairs and  alpha_c = delta_t / n_cand  (O(|A|), not the all-pairs
+    O(|A|^2) union).  On the confidence event Q^{pi_b}(s, a_exec) <=
+    V^{pi_b}(s) = Q^{pi_b}(s, a_b), so the one-step deviation argument for the
+    finite acyclic evidence DAG gives V^{pi_CPI}(s) <= V^{pi_b}(s) and
+    J^{pi_CPI} <= J^{pi_b} with prob >= 1 - delta_episode.
 
     Episode-level delta (011 §5): decision t spends delta_t =
-    6 delta_episode / (pi^2 t^2); within a decision every possible pair
-    (all C(|A|+1,2) candidate-vs-incumbent pairs) is allocated
-    alpha = delta_t / P, so the union bound over pairs gives
-    P(any pair CS fails in decision t) <= delta_t, and
-    sum_t delta_t = delta_episode  =>  P(all executed overrides valid) >=
+    6 delta_episode / (pi^2 t^2); P(all executed overrides valid) >=
     1 - delta_episode.
 
-    Sampling: 2 rollouts/world (the incumbent anchor + the most dangerous
-    challenger; 1 rollout when one of them is STOP).
+    Formal vs Operational (012 §1): cs_mode="eb" is the FORMAL CPI (the
+    theorem-backed PrPl-EB certificate — carries the safety claim);
+    cs_mode="betting" is the OPERATIONAL CPI (finite-grid experimental CS —
+    performance exploration only, NO strict continuum confidence guarantee).
+
+    Sampling: 2 rollouts/world (candidate c + the anchor a_b; 1 rollout when
+    one of them is STOP).
     """
 
     def __init__(self, quants, mu_M, mu_F, b_h, base, pi=(0.5, 0.5),
@@ -540,23 +547,33 @@ class CPI:
 
     def decide(self, x_int, h, delta_t, max_worlds=2000, seed=None):
         """One acquisition decision at (x, h) spending confidence budget
-        delta_t.  Returns (a_exec, info):
-            a_exec = a_b unless a challenger is CERTIFIED better
-                     (U_{c,a_inc} < 0), in which case the incumbent moves.
+        delta_t.  B0.4a-r (012 §4 方案 A): BASE-ANCHORED — every candidate is
+        compared only against the ORIGINAL base action a_b = pi_b(x, h)
+        (Delta_{c,a_b}), so the confidence allocation is O(|A|):
+            alpha_c = delta_t / n_cand,   n_cand = |A| candidates,
+        NOT the all-pairs O(|A|^2) union of the persistent-chain version.
+
+        Returns (a_exec, info):
+            a_exec = a_b unless some candidate c is CERTIFIED better
+                     (U_{c,a_b} < 0), in which case the best-certified
+                     candidate is executed.
             info: override (a_exec != a_b), a_b, n_worlds, n_rollouts,
-                  n_switches.
+                  n_certified (certified-better candidates found).
+        On the confidence event Q^{pi_b}(s, a_exec) <= V^{pi_b}(s), so
+        V^{pi_CPI}(s) <= V^{pi_b}(s) for the finite acyclic evidence DAG.
         """
         cr = self.cr
         om = cr.pl.omega(x_int)
-        a_b = self.base.act(cr.pl, x_int, om, h=h)
+        a_b = self.base.act(cr.pl, x_int, om, h=h)      # budget-aware anchor
         actions_feas, R0 = self._arms(x_int, h)
         actions = [a for a in actions_feas if a is not None]
         if not actions:
             return a_b, {"override": False, "a_b": a_b, "n_worlds": 0,
-                         "n_rollouts": 0, "n_switches": 0}
-        n_arms = len(actions) + 1
-        P = n_arms * (n_arms - 1) // 2
-        alpha_pair = delta_t / P
+                         "n_rollouts": 0, "n_certified": 0}
+        arms_all = actions + [None]
+        cand = [c for c in arms_all if c != a_b]        # base-anchored candidates
+        n_cand = max(1, len(cand))
+        alpha_c = delta_t / n_cand                      # O(|A|) allocation
 
         def _key(a):
             return (-1, -1) if a is None else tuple(a)
@@ -566,17 +583,22 @@ class CPI:
             return (ka, kb) if ka <= kb else (kb, ka)
 
         range_ab = {}
-        for ia in range(len(actions)):
-            for ib in range(ia + 1, len(actions)):
-                a, b = actions[ia], actions[ib]
-                k = pair_key(a, b)
-                c0, c1 = k[0], k[1]
-                l_c0, u_c0 = actions_feas[c0]
-                l_c1, u_c1 = actions_feas[c1]
-                range_ab[k] = (l_c0 - u_c1, u_c0 - l_c1)
-        for a in actions:
-            l_a, u_a = actions_feas[a]
-            range_ab[pair_key(a, None)] = (R0 - u_a, R0 - l_a)
+        for c in cand:
+            if c is None:
+                if a_b is not None:                  # pair (STOP, a_b): R0 - G_a_b
+                    l_b, u_b = actions_feas[a_b]
+                    range_ab[pair_key(None, a_b)] = (R0 - u_b, R0 - l_b)
+            elif a_b is None:                        # pair (c, STOP): G_c - R0
+                l_c, u_c = actions_feas[c]
+                range_ab[pair_key(c, None)] = (R0 - u_c, R0 - l_c)
+            else:
+                l_c, u_c = actions_feas[c]
+                l_b, u_b = actions_feas[a_b]
+                k = pair_key(c, a_b)
+                if _key(c) == k[0]:
+                    range_ab[k] = (l_c - u_b, u_c - l_b)
+                else:
+                    range_ab[k] = (l_b - u_c, u_b - l_c)
 
         cs = {}
         mu_hat = {}
@@ -607,87 +629,95 @@ class CPI:
                 return L
             return -U
 
-        def n_pair(a, b):
-            k = pair_key(a, b)
-            return cs[k].n if k in cs else 0
-
-        def feed(a, b, z):
-            k = pair_key(a, b)
-            if _key(a) != k[0]:
+        def feed(c, z):
+            """feed z = G_c - G_{a_b} into the (c, a_b) pair CS (canonical)."""
+            k = pair_key(c, a_b)
+            if _key(c) != k[0]:
                 z = -z
             if k not in cs:
                 lo, hi = range_ab[k]
-                cs[k] = PairCS(lo, hi, alpha_pair, mode=self.cs_mode)
+                cs[k] = PairCS(lo, hi, alpha_c, mode=self.cs_mode)
                 cs[k].tag = k
             cs[k].update(z)
-
-        a_inc = a_b
-        n_switches = 0
-        n_worlds = 0
-        n_rollouts = 0
-        arms_all = actions + [None]
-        alive = [c for c in arms_all if c != a_inc]      # challenger set
 
         def point_est(c):
             if c is None:
                 return R0
             return mu_hat[c] if c in mu_hat else actions_feas[c][0]
 
-        def sample_pair(chall, W):
-            """one paired sample (chall, a_inc); STOP handled exactly."""
+        def sample_once(c, W):
+            """one paired sample of (c, a_b) on world W; STOP exact."""
             nonlocal n_worlds, n_rollouts
             n_worlds += 1
-            if a_inc is None:
-                g_chall = cr._rollout(x_int, h, chall, W)
-                n_rollouts += 1
-                mu_hat[chall] = (mu_hat.get(chall, 0.0) * n_obs.get(chall, 0) + g_chall) \
-                    / (n_obs.get(chall, 0) + 1)
-                n_obs[chall] = n_obs.get(chall, 0) + 1
-                feed(chall, None, g_chall - R0)
-            else:
-                g_inc = cr._rollout(x_int, h, a_inc, W)
-                n_rollouts += 1
-                mu_hat[a_inc] = (mu_hat.get(a_inc, 0.0) * n_obs.get(a_inc, 0) + g_inc) \
-                    / (n_obs.get(a_inc, 0) + 1)
-                n_obs[a_inc] = n_obs.get(a_inc, 0) + 1
-                if chall is None:
-                    feed(None, a_inc, R0 - g_inc)        # STOP value EXACT
-                else:
-                    g_chall = cr._rollout(x_int, h, chall, W)
+            if c is None:
+                if a_b is not None:
+                    g_b = cr._rollout(x_int, h, a_b, W)
                     n_rollouts += 1
-                    mu_hat[chall] = (mu_hat.get(chall, 0.0) * n_obs.get(chall, 0) + g_chall) \
-                        / (n_obs.get(chall, 0) + 1)
-                    n_obs[chall] = n_obs.get(chall, 0) + 1
-                    feed(chall, a_inc, g_chall - g_inc)
+                    feed(c, R0 - g_b)                # STOP: R0 exact
+            else:
+                g_c = cr._rollout(x_int, h, c, W)
+                n_rollouts += 1
+                mu_hat[c] = (mu_hat.get(c, 0.0) * n_obs.get(c, 0) + g_c) \
+                    / (n_obs.get(c, 0) + 1)
+                n_obs[c] = n_obs.get(c, 0) + 1
+                if a_b is None:
+                    feed(c, g_c - R0)                # STOP anchor exact
+                else:
+                    g_b = cr._rollout(x_int, h, a_b, W)
+                    n_rollouts += 1
+                    mu_hat[a_b] = (mu_hat.get(a_b, 0.0) * n_obs.get(a_b, 0) + g_b) \
+                        / (n_obs.get(a_b, 0) + 1)
+                    n_obs[a_b] = n_obs.get(a_b, 0) + 1
+                    feed(c, g_c - g_b)
 
-        # phase 1: round-robin initialization (n_init per challenger) so the
-        # point estimates are informative before focusing.
+        certified = []                      # candidates with U_{c,a_b} < 0
+        alive = list(cand)
+        n_worlds = 0
+        n_rollouts = 0
+
+        def resolve(c):
+            """update certified/eliminated status of candidate c."""
+            nonlocal alive
+            k = pair_key(c, a_b)
+            if k not in cs:
+                return
+            if upper(c, a_b) < 0.0:
+                certified.append(c)
+                if c in alive:
+                    alive.remove(c)
+            elif lower(c, a_b) > 0.0:
+                if c in alive:
+                    alive.remove(c)
+
+        # phase 1: round-robin initialization (informative point estimates)
         n_init = min(40, max(1, max_worlds // (4 * max(len(alive), 1))))
         for c in list(alive):
             for _ in range(n_init):
                 if n_worlds >= max_worlds:
                     break
                 W = LatentWorld(cr, x_int)
-                sample_pair(c, W)
-                if upper(c, a_inc) < 0.0:
-                    a_inc = c
-                    n_switches += 1
-                    alive = [c2 for c2 in arms_all if c2 != a_inc]
-                    break
-                elif lower(c, a_inc) > 0.0:
-                    alive.remove(c)
-                    break
-        # phase 2: focus on the best-looking challenger until resolved / budget
+                sample_once(c, W)
+                resolve(c)
+        # phase 2: block-based focus — the best-looking candidate gets a
+        # dedicated BLOCK of samples before re-ranking (prevents noisy means
+        # of worse candidates from stealing the budget and stalling the pair
+        # that can actually certify).
+        B_focus = 200
+        chall = None
+        on_chall = 0
         while alive and n_worlds < max_worlds:
-            chall = min(alive, key=lambda c: (point_est(c), str(c)))
+            if chall is None or chall not in alive or on_chall >= B_focus:
+                chall = min(alive, key=lambda cc: (point_est(cc), str(cc)))
+                on_chall = 0
             W = LatentWorld(cr, x_int)
-            sample_pair(chall, W)
-            if upper(chall, a_inc) < 0.0:
-                a_inc = chall
-                n_switches += 1
-                alive = [c for c in arms_all if c != a_inc]
-            elif lower(chall, a_inc) > 0.0:
-                alive.remove(chall)
-        return a_inc, {"override": (a_inc != a_b), "a_b": a_b,
-                       "n_worlds": n_worlds, "n_rollouts": n_rollouts,
-                       "n_switches": n_switches}
+            sample_once(chall, W)
+            on_chall += 1
+            resolve(chall)
+        # execute a_b unless a certified-better candidate exists (best estimate)
+        if certified:
+            a_exec = min(certified, key=lambda cc: (point_est(cc), str(cc)))
+        else:
+            a_exec = a_b
+        return a_exec, {"override": (a_exec != a_b), "a_b": a_b,
+                        "n_worlds": n_worlds, "n_rollouts": n_rollouts,
+                        "n_certified": len(certified)}

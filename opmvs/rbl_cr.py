@@ -76,7 +76,11 @@ class SNRDirectBase:
         self.levels = levels
         self.r_max = max(levels)
 
-    def act(self, planner, x_int, om):
+    def act(self, planner, x_int, om, h=None):
+        """pi_b(x, om[, h]): STOP if |Omega| >= eta_b, else refine the
+        strongest (by sensing SNR) UAV not at r_max.  h is accepted for the
+        unified budget-aware base interface (012 §5) but ignored — the
+        rollout's budget check enforces feasibility."""
         if abs(om) >= self.eta_b:
             return None
         rem = int(x_int)
@@ -295,9 +299,12 @@ class CRRBL:
             x2, om2 = self._apply(x_int, om, i, r2, latents)
             cost += c
             h_rem -= c
-        # follow the base policy (respecting the remaining budget)
+        # follow the base policy (respecting the remaining budget).  B0.4a-r
+        # (012 §5): the base policy is defined on the augmented state (x, h) —
+        # base.act receives the REMAINING budget so pi_b(x, h_rem) is the same
+        # object the CPI anchor and the exact oracle use.
         for _ in range(4 * self.N + 2):
-            a = self.base.act(self.pl, x2, om2)
+            a = self.base.act(self.pl, x2, om2, h=h_rem)
             if a is None:
                 break
             i, r2 = a
@@ -440,15 +447,16 @@ class CRRBL:
 # ------------------------------------------------------ exact-oracle helpers
 def base_policy_value(crr, x_int, h, memo=None):
     """Exact cost-to-go J^{pi_b}(x, h) of the rollout base policy, memoized
-    (budget-aware: if the base action exceeds the remaining budget, pay
-    R_stop(x)).  This is the continuation value used by exact_qa_pi_b."""
+    (budget-aware: the base policy is defined on (x, h) — base.act receives
+    the remaining budget h (012 §5), so pi_b(x, h) is the SAME object the
+    CPI anchor and the MC rollouts use)."""
     if memo is None:
         memo = {}
     key = (int(x_int), int(np.floor(h / crr.delta_c)))
     if key in memo:
         return memo[key]
     om = crr.pl.omega(x_int)
-    a = crr.base.act(crr.pl, x_int, om)
+    a = crr.base.act(crr.pl, x_int, om, h=h)
     if a is None:
         p = 1.0 / (1.0 + np.exp(-om))
         val = min(crr.C01 * p, crr.C10 * (1.0 - p))

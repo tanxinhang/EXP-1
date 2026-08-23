@@ -105,6 +105,17 @@
   消除）。四 Gate：G0 fallback tail、G1/G2 override 收益与安全性（N=4 exact matched-base
   + binomial U95）、G3 VoI-base 强度。关键口径：CPI 的 exact oracle 必须与 rollout 的
   base 匹配（SNR-base oracle 检查 VoI-base rollouts 会产生假 violation）。
+- **MVS-B0.4a-r（依据 advice/012.md，credibility closure）**：**budget-aware base**
+  π_b(x,h) 全局贯通（012 §5：CPI anchor、MC rollouts、exact oracle 统一调用
+  base.act(pl,x,om,h)）；**Formal vs Operational CPI 分离**（012 §1）——cs_mode="eb"
+  是 theorem-backed PrPl-EB（承担 safety claim），cs_mode="betting" 是 finite-grid
+  实验 CS（只做性能探索，无严格连续置信保证，此前 11 次 override 是 operational
+  证据而非 formal 证书）；**base-anchored O(|A|) 置信分配**（012 §4 方案 A：每个
+  candidate 只与原 a_b 比较，α_c=δ_t/n_cand，取代 all-pairs O(|A|²) persistent
+  chain；修 resolve 的 pair-key bug + block-based focus B_focus=200）；**δ_1 修复**
+  （012 §3：独立状态是 episode 第一个决策，δ_1=6δ_episode/π²，取代 stale δ_t）；
+  **G2 UNCERTAIN 口径**（012 §2：0 violations 但 override 数 <59 ⇒ 不足以认证
+  5% violation rate，不写 FAIL）；新增 t-scan P_override(t∈{1,2,4,8})。
 - **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
@@ -242,13 +253,14 @@ python smoke_test.py         # 核心模块自检
 ## 下一步（依据 advice/008/009.md 的顺序，MVS-A 封板）
 
 MVS-A 的 G0/G1a/G1b/G2 + R2.1-G0..G4 全部通过，按 003.md 冻结，不再继续优化。
-MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c/B0.4/B0.4r/B0.4s/B0.4a 已按 004/005/006/007/008/009/
-010/011 完成。审计 011 确认 B0.4a 的 CPI（base-by-default + certified override）落地
-（B0.5 移到 B0.6 之后）：
+MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c/B0.4/B0.4r/B0.4s/B0.4a/B0.4a-r 已按 004/005/006/007/008/009/
+010/011/012 完成。审计 011 确认 B0.4a 的 CPI（base-by-default + certified override）落地
+（B0.5 移到 B0.6 之后）；审计 012 完成 B0.4a-r credibility closure（budget-aware base、
+Formal/Operational CPI 分离、base-anchored O(|A|)、δ_1 修复、G2 UNCERTAIN 口径）：
 
-- **B0.4a**（已完成，见上文 B0.4s/B0.4a bullet）：uncertified ⇒ base（VoI-base fallback）；
-  certified override（U_{c,a_inc}<0 才切换，persistent incumbent）；VoI-base 已落地并
-  作为 CPI 的 rollout base；
+- **B0.4a/B0.4a-r**（已完成，见上文 B0.4s/B0.4a 与 B0.4a-r bullet）：uncertified ⇒ base
+  （VoI-base fallback）；certified override（U_{c,a_b}<0 才切换，base-anchored）；
+  Formal-CPI 承担 safety claim、Operational-CPI 只做性能探索；
 - **B0.4b**：正式 b⋆(x) 定理（B0.3c 已验证存在性判据：b⋆<∞ ⟺ E[Y_x]≥0；
   E[Y_x]<0 ⟹ progressive dominates direct for every b_h≥0）；
 - **B0.6-pre**：N=4 exact / N=8 shallow sample-complexity gate（先验收算法）；
