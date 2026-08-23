@@ -79,6 +79,18 @@
   预算下与 B0.3c 可比（ε-opt(2)=0.925 vs 0.950，ε-opt(4)=0.970 vs 0.965，用 6–16× 更少
   rollout）；G3 N=8 shallow near-tie-aware（H=24/34/40 的 Q(a)−Q_min ≤ 1.09 bits）；
   G4 scaling（2 rollouts/world，总 rollout 与 |A| 无关）。
+- **MVS-B0.4r（依据 advice/010.md，credibility patch）**：**R0** canonical sample+support
+  同向——range_ab 先 canonicalize 再算 [l_c0−u_c1, u_c0−l_c1]，PairCS.update 硬断言
+  z∈[lo,hi]（descending top-k 回归 T25 锁死，修掉非升序动作枚举下的 support 方向 bug）；
+  **R1 formal 证书路径 = predictable plug-in empirical-Bernstein CS**（Maurer–Pontil 2009
+  Thm 6 + peeling union bound，连续区间、无 grid inversion；betting grid CS 降级为实验性
+  收紧消融，不再承担主证书）；**R3 G1 四格消融**（H0 arm/Hoeffding/full、H1 pair/Hoeffding/
+  challenger、E1 pair/EB/challenger/shared、E0 pair/EB/challenger/independent）分离三段因果：
+  H0→H1 无收益（sparse pair sampling + 全 range 反而更宽）、H1→E1 是 variance-adaptive CS
+  的贡献（~2× 更少 rollout）、E0→E1 是 nested CRN coupling 的贡献（无耦合无法认证）；
+  **R4 G2 改为硬 rollout 预算曲线** P(Q−Q_min≤2) vs R∈{1000,3000,6000,12000}；
+  **R5 G4 表述修正**——per-world rollout O(|A|)→O(1)，但总 certification complexity 仍
+  随 |A|（log P 置信分配 + O(|A|) challenger 搜索 + O(|A|²) pair 存储）。
 - **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
@@ -215,8 +227,8 @@ python smoke_test.py         # 核心模块自检
 ## 下一步（依据 advice/008/009.md 的顺序，MVS-A 封板）
 
 MVS-A 的 G0/G1a/G1b/G2 + R2.1-G0..G4 全部通过，按 003.md 冻结，不再继续优化。
-MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c/B0.4 已按 004/005/006/007/008/009 完成。
-审计 009 确认 B0.3c 封板、B0.4 达成（B0.5 移到 B0.6 之后）：
+MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c/B0.4/B0.4r 已按 004/005/006/007/008/009/010 完成。
+审计 009/010 确认 B0.4 方向成立并完成 credibility patch（B0.5 移到 B0.6 之后）：
 
 - **B0.4a**：uncertified ⇒ **fallback to base policy**；certified policy improvement
   （U(D_a)<0 才 override，D_a=Q_a^{π_b}−Q_{a_b}^{π_b}）；one-step conditional-VoI base

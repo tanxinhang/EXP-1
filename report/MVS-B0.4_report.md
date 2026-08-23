@@ -1,36 +1,39 @@
-# O-PEF MVS-B0.4 — Pairwise-Difference Time-Uniform EB-CS Planner
+# O-PEF MVS-B0.4/B0.4r — Pairwise-Difference EB-CS Planner（credibility patch）
 
-> 依据 `advice/009.md` §7-§12。B0.4 核心变化：直接估计 pair difference
-> Δ_{a,b} = Q_a^{π_b} − Q_b^{π_b}（Z_t^{a,b} = G_a(W_t) − G_b(W_t)，共享 latent world），
-> 取代 arm-wise Q_a 估计 + U_a−L_b 比较；time-uniform betting CS（WSR 2023，Ville 不等式，
-> variance-adaptive λ）；predictable candidate–challenger pair sampling（009 §10，
-> (a_t,b_t) 在采 W_t 前由 F_{t−1} 决定，每 pair α_ab 且 Σα_ab≤δ）；每 world 2 个 rollout；
-> 证书（009 §8）：U_{â,b} ≤ ε ∀b∈A⁺\{â} ⟹ Q_â ≤ min_b Q_b + ε。
+> 依据 `advice/009.md` §7-§12 与 `advice/010.md` B0.4r。B0.4 核心：直接估计 Δ_{a,b} = Q_a^{π_b} − Q_b^{π_b}（Z_t^{a,b} = G_a(W_t) − G_b(W_t)，共享 latent world），取代 arm-wise Q_a + U_a−L_b；predictable candidate–challenger pair sampling（009 §10，(a_t,b_t) 由 F_{t−1} 决定，每 pair α_ab 且 Σα_ab≤δ）；每 world 2 个 rollout；证书（009 §8）：U_{â,b} ≤ ε ∀b∈A⁺\{â} ⟹ Q_â ≤ min_b Q_b + ε。
+> **B0.4r（010）**：R0 canonical sample+support 同向（PairCS 硬断言 z∈[lo,hi]，descending top-k regression）；R1 **formal 证书路径 = predictable plug-in empirical-Bernstein CS**（Maurer–Pontil 2009 Thm 6 + peeling union bound，连续区间、无 grid inversion），betting grid CS 降级为实验性消融（不再承担主证书）；R3 G1 四格消融（H0/H1/E1/E0）分离 pair statistic / CS / coupling 三段因果；R4 G2 改为硬 rollout 预算曲线；R5 G4 表述修正（per-world O(1)，total 仍随 |A|）。
 > 设计依据：耦合效率 κ = (σ_a²+σ_b²)/Var(G_a−G_b) ≈ 13（008 §9 实测），
 > 所以『不要更精确估计 Q_a，直接更精确估计决策所需的 Q_a−Q_b』（009 §12）。
 
-> 生成时间: 2026-08-23 13:09:34   模式: FULL
+> 生成时间: 2026-08-23 14:16:04   模式: FULL
 
-## 1. G0 — Pair-CS anytime validity（exact Δ_{a,b}，N=4）
+## 1. G0 — Pair-CS anytime validity（exact Δ_{a,b}，N=4；formal EB + betting 消融）
 
-- pair (3, 4) vs (2, 4)：Δ^{π_b} = -4.8159，range = [-394.3020,394.3020]
-- anytime coverage（∀ n ≤ 300，α=0.01）= 1.0000（理论下界 1−α = 0.9900）→ **PASS**
+- PrPl-EB (formal, 连续区间)：Δ^{π_b} = -4.8159，range = [-394.3020,394.3020]；anytime coverage（∀ n ≤ 300，α=0.01）= 1.0000（下界 1−α = 0.9900）→ **PASS**
+- betting (experimental 消融)：Δ^{π_b} = -4.8159，range = [-394.3020,394.3020]；anytime coverage（∀ n ≤ 300，α=0.01）= 1.0000（下界 1−α = 0.9900）→ **PASS**
+- 注（010 §2）：formal 证书路径 = Maurer–Pontil (2009) Thm 6 + peeling union bound（连续区间、无 grid inversion）；betting grid CS 仅作实验性收紧消融。
 
-## 2. G1 — sample efficiency：worlds-to-certify，EB-CS vs Hoeffding（B0.3c bound）
+## 2. G1 — 四格消融：pair statistic × CS × coupling（010 §4，ε=40，rollout 预算）
 
-| ε | EB worlds (cert rate) | Hoeffding worlds (cert rate) | cert-rate 比 |
+| cell | 配置 | cert rate | 中位 rollouts-to-certify |
 | --- | --- | --- | --- |
-| 2 | 4057.0000（0.6750） | 3108.0000（0.0250） | 27.0000 |
-| 4 | 3004.5000（0.7000） | 4513.0000（0.0250） | 28.0000 |
-| 8 | 2315.0000（0.8250） | 3263.0000（0.0750） | 11.0000 |
-- 解读：同 6000-world 预算下，EB-CS 的 certification rate（ε=2/4/8: 0.68/0.70/0.83）远超 Hoeffding（0.03/0.03/0.08）——variance-adaptive betting CS（κ≈13 的 pair coupling）把小 ε 认证从『几乎不可能』变成常规操作；Hoeffding 的罕见认证发生在动作差特别大的 easy states，中位数无可比性（008 §9 理论：n ≈ D²·log/(2ε²) 需 ~1.5e5 worlds）。
-（255s）
+| H0 | arm-wise/Hoeffding/full | 0.3333 | > 24000 |
+| H1 | pair/Hoeffding/challenger | 0.2667 | > 24000 |
+| E1 | pair/EB/challenger/shared | 0.9333 | 17288.0000 |
+| E0 | pair/EB/challenger/independent | 0.3333 | > 24000 |
+- 解读（010 §4）：**H0→H1**（arm→pair statistic + challenger 采样）本身不带来认证收益——sparse pair sampling 使每个 pair 样本变少，pair-Hoeffding 用全 range 反而更宽；**H1→E1**（pair-Hoeffding→variance-adaptive EB）才是 CS 的贡献：E1 用 ~2× 更少 rollout 完成认证；**E0→E1**（independent→shared world）是 nested CRN coupling 的贡献：无耦合时 E0 在预算内无法认证。κ≈13 因此被拆成『pairwise statistic + variance-adaptive CS』与『coupling』两段因果。
+（61s）
 
-## 3. G2 — action quality（N=4 exact，主指标 P(Q−Q_min ≤ ε)，009 §12）
+## 3. G2 — hard rollout-budget action-quality curves（010 §5，P(Q−Q_min ≤ 2) vs R）
 
-- B0.4（n_min=100，3000 worlds = 6000 rollouts）：**P(Q_B0.4 − Q_min ≤ ε=2) = 0.9250**，P(≤ ε=4) = 0.9700，E[Q−Q_min] = 0.3391；certification rate（ε=8）= 0.6250（117s）
-- B0.3c（全配对，同状态，500 worlds ≈ 3000 rollouts）：P(≤ ε=2) = 0.9500，P(≤ ε=4) = 0.9650，E[Q−Q_min] = 0.2564
-- 解读：B0.4 在等 rollout 预算下与 B0.3c 的动作质量**可比**（ε=2: 0.925 vs 0.950；ε=4: 0.970 vs 0.965），而每个 world 的 rollout 从 |A| 降到 2（G4）——即相同的动作质量用 **6–16× 更少的 rollout 预算**；**certified 决策由证书保证 ε-optimal（≈1−δ）**；未认证状态的经验最优执行问题按 009 §13 交由 B0.4a 的 uncertified⇒base fallback / certified override 解决（下一步）。
+| R (rollouts) | B0.4 P(≤2) | B0.3c P(≤2) | B0.4 worlds | B0.3c worlds |
+| --- | --- | --- | --- | --- |
+| 1000 | 0.6000 | 0.8167 | 891.4500 | 996.6500 |
+| 3000 | 0.7500 | 0.9667 | 2713.1833 | 2998.1167 |
+| 6000 | 0.8833 | 0.9667 | 5313.2833 | 5998.1500 |
+| 12000 | 0.8833 | 0.9833 | 10923.3667 | 11997.5667 |
+- 解读：R 为**硬 rollout 预算**（两 planner 都在 n_rollouts ≥ R 停止，010 §5）；B0.4 的 worlds 数高于 B0.3c（每 world 只做 2 个 rollout 而非 |A| 个），但每 world 成本低 |A|/2 倍；曲线显示动作质量随 R 的 tradeoff。**certified 决策由证书保证 ε-optimal（≈1−δ）**；未认证执行问题按 009 §13 交 B0.4a。
+（88s）
 
 ## 4. G3 — N=8 shallow oracle（H=24/34/40，near-tie-aware）
 
@@ -47,6 +50,6 @@
 | 96 | 16 | 300 | 600 | 2.0000 | False | 0.1s |
 | 120 | 16 | 300 | 600 | 2.0000 | False | 0.1s |
 
-- B0.3c 全配对每 world 需要 |A| 个 rollout（N=8 root |A|=32）；B0.4 candidate–challenger 每 world 固定 2 个（challenger=STOP 时 1 个）——总 rollout 与 |A| 无关，UAV 数增加不放大规划成本（009 §13）。
+- **per-world rollout complexity 从 O(|A|) 降到 O(1)**（010 §6）：B0.3c 全配对每 world 需要 |A| 个 rollout（N=8 root |A|=32），B0.4 candidate–challenger 每 world 固定 2 个（challenger=STOP 时 1 个）。但**总 certification complexity 仍依赖 |A|**：置信分配 α_ab=δ/P 带 log P = O(log|A|) 项、challenger 搜索每轮 O(|A|)、pair-CS 存储最坏 O(|A|²)、更多 arms 需要更多 worlds 排除潜在 challenger——因此不是『与 UAV 数无关』，而是 per-world O(1)（UAV 数增加不放大单 world 的 rollout 成本）。
 
-总耗时: 391.8s
+总耗时: 170.2s

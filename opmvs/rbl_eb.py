@@ -54,51 +54,87 @@ from .rbl_cr import CRRBL, LatentWorld, z_code_b, z_decode_b
 
 
 class PairCS:
-    """Time-uniform betting confidence sequence for the mean of a bounded
-    pair difference Z in [lo, hi], via the WSR betting martingale with
-    variance-adaptive (predictable plug-in) bets.
+    """Time-uniform confidence sequence for the mean of a bounded pair
+    difference Z in [lo, hi], normalized X = (Z - lo)/(hi - lo) in [0,1].
 
-    lambda_t(mu) = clip( kappa_t * (mu_hat_{t-1} - mu),  +/- 0.9 / max(mu,1-mu) )
-    with kappa_t = 4 / (sigma^2_hat_{t-1} + eps)  (predictable running sample
-    variance of X).  Validity: K_n(mu*) is a non-negative martingale for the
-    true mean mu* (Ville's inequality); the kappa scaling only accelerates the
-    wealth growth (variance-adaptive rate ~ sigma^2 log(1/alpha)/n), never
-    affects validity (any F_{t-1}-measurable lambda within the cap is valid).
+    mode="eb" (FORMAL certificate path, B0.4r / advice/010 §2): predictable
+    plug-in empirical-Bernstein CS via the Maurer-Pontil (2009, Thm 6) per-n
+    bound + the union bound (peeling) over n with delta-spending:
+        r_n = sqrt( 2 V_hat_n t_n / (n-1) ) + 7 t_n / (3 (n-1)),
+        t_n = log( 2 / delta_n ),  delta_n = 6 alpha / (pi^2 n^2),
+        V_hat_n = sample variance of X_1..X_n,   mu_hat_n = sample mean.
+    P( exists n >= 1 : |mu_hat_n - mu| >= r_n ) <= sum_n delta_n = alpha,
+    since the per-n MP bound holds for the iid sample and the union bound
+    makes it time-uniform (optional-stopping valid).  This is a CONTINUOUS
+    interval (no grid inversion) and is the theorem-backed certificate.
+
+    mode="betting" (EXPERIMENTAL ablation, not the formal certificate): the
+    WSR-style variance-adaptive betting martingale (Ville's inequality) with
+    the wealth evaluated on a finite grid and expanded by one step — an
+    empirical tightening that does NOT carry a strict continuum guarantee
+    (010 §2 keeps it as the tighter ablation).
+
+    Hard invariant (010 §1 R2): every fed z must lie in [lo, hi] (the
+    canonical sample orientation must match the canonical support range).
     """
 
-    def __init__(self, lo, hi, alpha, grid=501):
+    def __init__(self, lo, hi, alpha, mode="eb", grid=501):
         if not (hi > lo):
             raise ValueError(f"degenerate pair range [{lo}, {hi}]")
         self.lo = float(lo)
         self.hi = float(hi)
         self.alpha = float(alpha)
-        self.mu_grid = np.linspace(0.0, 1.0, grid)
-        self.step = self.mu_grid[1] - self.mu_grid[0]
-        self.wealth = np.ones(grid)
+        self.mode = mode
         self.mu_hat = 0.0
         self.m2 = 0.0                    # Welford sum of squares
         self.n = 0
+        if mode == "betting":
+            self.mu_grid = np.linspace(0.0, 1.0, grid)
+            self.step = self.mu_grid[1] - self.mu_grid[0]
+            self.wealth = np.ones(grid)
+        elif mode != "eb":
+            raise ValueError(f"unknown PairCS mode {mode}")
 
     def update(self, z):
-        """Feed one paired observation z in [lo, hi]."""
+        """Feed one paired observation z; MUST lie in [lo, hi] (R2 hard
+        invariant — catches canonical sample/support orientation bugs)."""
         x = (float(z) - self.lo) / (self.hi - self.lo)
-        # predictable lambda from F_{t-1} (mu_hat / variance BEFORE this obs)
-        cap = 0.9 / np.maximum(self.mu_grid, 1.0 - self.mu_grid)
-        var_hat = self.m2 / max(self.n - 1, 1)
-        kappa = 4.0 / (var_hat + 1e-6)
-        lam = np.clip(kappa * (self.mu_hat - self.mu_grid), -cap, cap)
-        self.wealth *= (1.0 + lam * (x - self.mu_grid))
-        np.clip(self.wealth, 0.0, 1e300, out=self.wealth)   # avoid inf artifacts
-        # update running mean / variance
-        self.n += 1
-        delta = x - self.mu_hat
-        self.mu_hat += delta / self.n
-        self.m2 += delta * (x - self.mu_hat)
+        assert -1e-9 <= x <= 1.0 + 1e-9, \
+            f"z={z} outside pair range [{self.lo}, {self.hi}] (orientation bug)"
+        if self.mode == "eb":
+            # predictable plug-in EB: accumulate the sample variance about the
+            # PRE-update mean (Welford) — the per-n MP bound uses the final
+            # sample variance, which Welford tracks incrementally.
+            self.n += 1
+            delta = x - self.mu_hat
+            self.mu_hat += delta / self.n
+            self.m2 += delta * (x - self.mu_hat)
+        else:                             # betting (experimental)
+            cap = 0.9 / np.maximum(self.mu_grid, 1.0 - self.mu_grid)
+            var_hat = self.m2 / max(self.n - 1, 1)
+            kappa = 4.0 / (var_hat + 1e-6)
+            lam = np.clip(kappa * (self.mu_hat - self.mu_grid), -cap, cap)
+            self.wealth *= (1.0 + lam * (x - self.mu_grid))
+            np.clip(self.wealth, 0.0, 1e300, out=self.wealth)
+            self.n += 1
+            delta = x - self.mu_hat
+            self.mu_hat += delta / self.n
+            self.m2 += delta * (x - self.mu_hat)
 
     def bounds(self):
         """(L, U) on the mean of Z; unsampled -> the full range."""
         if self.n == 0:
             return self.lo, self.hi
+        if self.mode == "eb":
+            n = self.n
+            V = self.m2 / max(n - 1, 1)
+            dn = 6.0 * self.alpha / (math.pi * math.pi * n * n)
+            t = math.log(2.0 / dn)
+            r = math.sqrt(2.0 * V * t / max(n - 1, 1)) + 7.0 * t / (3.0 * max(n - 1, 1))
+            lo_m = max(0.0, self.mu_hat - r)
+            hi_m = min(1.0, self.mu_hat + r)
+            return self.lo + (self.hi - self.lo) * lo_m, \
+                self.lo + (self.hi - self.lo) * hi_m
         inside = self.wealth < (1.0 / self.alpha)
         if not inside.any():
             return self.lo, self.hi
@@ -108,17 +144,57 @@ class PairCS:
             self.lo + (self.hi - self.lo) * hi_m
 
 
+class PairHoeffding:
+    """Pairwise HOEFFDING CS on the pair difference (ablation cell H1 of
+    010 §4 — isolates the CS contribution from the pair-statistic one):
+        r_ab(n) = (u - l) * sqrt( log(2 / delta_ab(n)) / (2 n) ),
+        delta_ab(n) = 6 alpha / (pi^2 n^2)   (sum_n = alpha, time-uniform).
+    Uses the FULL range (u - l) — no variance adaptation."""
+
+    def __init__(self, lo, hi, alpha):
+        self.lo = float(lo)
+        self.hi = float(hi)
+        self.alpha = float(alpha)
+        self.n = 0
+        self.s = 0.0
+
+    def update(self, z):
+        assert self.lo - 1e-9 <= z <= self.hi + 1e-9, \
+            f"z={z} outside pair range [{self.lo}, {self.hi}]"
+        self.n += 1
+        self.s += float(z)
+
+    def bounds(self):
+        if self.n == 0:
+            return self.lo, self.hi
+        mu = self.s / self.n
+        dn = 6.0 * self.alpha / (math.pi * math.pi * self.n * self.n)
+        r = (self.hi - self.lo) * math.sqrt(math.log(2.0 / dn) / (2.0 * self.n))
+        return mu - r, mu + r
+
+
 class CRRBLEB:
     """B0.4 pairwise-difference certified planner (wraps the CRRBL rollout
-    machinery: LatentWorld, _rollout, budget-aware diameters)."""
+    machinery: LatentWorld, _rollout, budget-aware diameters).
+
+    cs_mode: "eb" (default, FORMAL: predictable plug-in empirical-Bernstein CS
+    via Maurer-Pontil + peeling, continuous), "betting" (experimental tighter
+    grid CS), "hoeffding" (pairwise Hoeffding — ablation cell H1 of 010 §4).
+    shared: True (default) uses ONE latent world per iteration for both
+    actions (nested CRN coupling); False draws independent worlds per action
+    (ablation cell E0 — isolates the coupling benefit).
+    """
 
     def __init__(self, quants, mu_M, mu_F, b_h, base, pi=(0.5, 0.5),
-                 delta_c=1.0, levels=(1, 2, 4, 8), seed=0, top_k_uavs=None):
+                 delta_c=1.0, levels=(1, 2, 4, 8), seed=0, top_k_uavs=None,
+                 cs_mode="eb", shared=True):
         self.cr = CRRBL(quants, mu_M, mu_F, b_h, base, pi=pi,
                         delta_c=delta_c, levels=levels, seed=seed,
                         top_k_uavs=top_k_uavs)
         self.b_h = self.cr.b_h
         self.R_max = self.cr.R_max
+        self.cs_mode = cs_mode
+        self.shared = bool(shared)
 
     # ------------------------------------------------------------ per-action
     def _arms(self, x_int, h):
@@ -174,9 +250,11 @@ class CRRBLEB:
         for ia in range(len(actions)):
             for ib in range(ia + 1, len(actions)):
                 a, b = actions[ia], actions[ib]
-                l_a, u_a = actions_feas[a]
-                l_b, u_b = actions_feas[b]
-                range_ab[pair_key(a, b)] = (l_a - u_b, u_a - l_b)
+                k = pair_key(a, b)                 # CANONICALIZE FIRST (R0)
+                c0, c1 = k[0], k[1]                # G_{c0} - G_{c1}
+                l_c0, u_c0 = actions_feas[c0]
+                l_c1, u_c1 = actions_feas[c1]
+                range_ab[k] = (l_c0 - u_c1, u_c0 - l_c1)   # support follows key
         for a in actions:
             l_a, u_a = actions_feas[a]
             range_ab[pair_key(a, None)] = (R0 - u_a, R0 - l_a)
@@ -234,12 +312,15 @@ class CRRBLEB:
             second element of the key (candidate change would otherwise mix
             opposite-sign samples in one CS — corrupting the bounds)."""
             k = pair_key(a, b)
-            if tuple(a) != k[0]:
+            if _key(a) != k[0]:
                 z = -z
             if k not in cs:
                 lo, hi = range_ab[k]
-                cs[k] = PairCS(lo, hi, alpha_ab)
-            cs[k].update(z)
+                if self.cs_mode == "hoeffding":
+                    cs[k] = PairHoeffding(lo, hi, alpha_ab)
+                else:
+                    cs[k] = PairCS(lo, hi, alpha_ab, mode=self.cs_mode)
+            cs[k].update(z)                # R2: asserts z in [lo, hi]
 
         n_worlds = 0
         n_rollouts = 0
@@ -267,12 +348,13 @@ class CRRBLEB:
                                 key=lambda b: (n_obs.get(b, 0), str(b)))
                 else:
                     chall = max(others, key=lambda b: (upper(cand, b), -n_pair(cand, b)))
-            # ---- draw ONE world and evaluate the pair (2 rollouts/world)
-            W = LatentWorld(cr, x_int)
-            n_worlds += 1
+            # ---- draw the world(s) and evaluate the pair (2 rollouts/world;
+            # shared=False uses independent worlds per action — ablation E0)
             if cand is None:
                 # STOP candidate: STOP's value is exact; sample the challenger
                 # reporting action vs STOP (1 rollout).
+                W = LatentWorld(cr, x_int)
+                n_worlds += 1
                 g_chall = cr._rollout(x_int, h, chall, W)
                 n_rollouts += 1
                 mu_hat[chall] = (mu_hat.get(chall, 0.0) * n_obs.get(chall, 0) + g_chall) \
@@ -280,22 +362,38 @@ class CRRBLEB:
                 n_obs[chall] = n_obs.get(chall, 0) + 1
                 feed(chall, None, g_chall - R0)
             else:
-                g_cand = cr._rollout(x_int, h, cand, W)
+                if self.shared:
+                    W = LatentWorld(cr, x_int)
+                    n_worlds += 1
+                    g_cand = cr._rollout(x_int, h, cand, W)
+                    g_chall = (cr._rollout(x_int, h, chall, W)
+                               if chall is not None else None)
+                else:
+                    W1 = LatentWorld(cr, x_int)
+                    n_worlds += 1
+                    g_cand = cr._rollout(x_int, h, cand, W1)
+                    if chall is not None:
+                        W2 = LatentWorld(cr, x_int)
+                        n_worlds += 1
+                        g_chall = cr._rollout(x_int, h, chall, W2)
+                    else:
+                        g_chall = None
                 n_rollouts += 1
                 mu_hat[cand] = (mu_hat.get(cand, 0.0) * n_obs.get(cand, 0) + g_cand) \
                     / (n_obs.get(cand, 0) + 1)
                 n_obs[cand] = n_obs.get(cand, 0) + 1
                 feed(cand, None, g_cand - R0)      # (cand, STOP) pair is free
                 if chall is not None:
-                    g_chall = cr._rollout(x_int, h, chall, W)
                     n_rollouts += 1
                     mu_hat[chall] = (mu_hat.get(chall, 0.0) * n_obs.get(chall, 0) + g_chall) \
                         / (n_obs.get(chall, 0) + 1)
                     n_obs[chall] = n_obs.get(chall, 0) + 1
                     feed(cand, chall, g_cand - g_chall)
                     # evidence-based switch (009 §13 structure): the candidate
-                    # changes only when the pairwise CS proves the challenger
-                    # beats it (L_{cand,chall} > 0), never on raw-mean flips.
+                    # may also be switched by the pairwise CS when it proves
+                    # the challenger beats it (L_{cand,chall} > 0).  NOTE: the
+                    # top-of-loop raw-mean selection can still override this
+                    # (010 §7) — a persistent incumbent comes with B0.4a.
                     if lower(cand, chall) > 0.0:
                         cand = chall
             last_cand = cand

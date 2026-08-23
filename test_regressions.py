@@ -429,7 +429,7 @@ def run():
     n_runs22, n_max22, alpha22 = 60, 150, 0.05
     for r in range(n_runs22):
         crA.rng = np.random.default_rng(22000 + r)
-        cs22 = PairCS(-400.0, 400.0, alpha22)
+        cs22 = PairCS(-400.0, 400.0, alpha22, mode="eb")   # FORMAL EB path
         ok22 = True
         for n in range(1, n_max22 + 1):
             W = LatentWorld(crA, 0)
@@ -438,7 +438,7 @@ def run():
             L, U = cs22.bounds()
             ok22 &= (Delta22 >= L and Delta22 <= U)
         cov22 += int(ok22)
-    check("T22 PairCS anytime validity (statistical)",
+    check("T22 PrPl-EB anytime validity (statistical)",
           cov22 / n_runs22 >= 1 - alpha22 - 0.06,
           f"cov={cov22}/{n_runs22} (>= {1-alpha22-0.06:.2f})")
 
@@ -450,7 +450,7 @@ def run():
     a23, b23 = (3, 4), (2, 4)
     D23 = Q_ex16[a23] - Q_ex16[b23]           # Q_(3,4) - Q_(2,4) < 0
     D_canon = -D23                            # Q_(2,4) - Q_(3,4) > 0
-    cs23 = PairCS(-400.0, 400.0, 0.005)
+    cs23 = PairCS(-400.0, 400.0, 0.005, mode="eb")   # FORMAL EB path
     crA.rng = np.random.default_rng(23)
     n23 = 1500
     zsum = 0.0
@@ -501,6 +501,30 @@ def run():
     check("T24 B0.4 certified => exact eps-ordering (loose tail)",
           n_viol24 <= max(2, int(0.25 * max(n_cert24, 1))),
           f"certified={n_cert24} viol={n_viol24} (eps={eps24:.0f})")
+
+    # T25 (010 §1 R0): canonical SAMPLE + SUPPORT orientation with a DESCENDING
+    # top_k_uavs action list.  The pair range must follow the canonical key
+    # (G_{key0} - G_{key1}); a mis-oriented support would make PairCS.update
+    # trip its hard z-in-[lo,hi] assert (the R2 invariant) and would corrupt
+    # the certificate bounds.  Action quality is a secondary sanity (the
+    # returned root action must be eps-optimal at eps=8).
+    Q25 = exact_qa_pi_b(crA, 0, 40)
+    Qmin25 = min(list(Q25.values()) + [crA.pl.r_stop(0)])
+    n_best25 = 0
+    n_tri25 = 30
+    for trial in range(n_tri25):
+        eb25 = CRRBLEB(quants, 256.0, 256.0 * np.exp(1.0), bhA, baseA,
+                       levels=(1, 2, 4), delta_c=1.0, seed=25,
+                       top_k_uavs=[3, 2, 1, 0])      # descending enumeration
+        eb25.cr.rng = np.random.default_rng(25000 + trial)
+        a25, _inf25 = eb25.plan(0, 40, eps=40.0, delta=0.05, max_worlds=1500)
+        # reaching here = the R2 assert never tripped (canonical support OK)
+        q25 = Q25.get(a25, np.inf)
+        n_best25 += int(max(0.0, q25 - Qmin25) <= 8.0)
+    check("T25 descending top_k canonical support (no z-range trip)", True)
+    check("T25 descending top_k action quality (eps-opt 8 at root)",
+          n_best25 / n_tri25 >= 0.7,
+          f"P(eps-opt(8)) = {n_best25}/{n_tri25}")
 
     print(f"\n=== {len(PASS)} passed, {len(FAIL)} failed ({time.time()-t0:.0f}s) ===")
     for name, d in FAIL:
