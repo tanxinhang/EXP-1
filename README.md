@@ -176,6 +176,62 @@
   state-dependent adaptive packetization 理论成立（B0.4b 已验证），但在当前
   b_setup=16 regime 下 optimized direct packetization 已接近最优通信工作区间；
   不再改算法"调赢"。**
+- **MVS-B0.6-r / B0.6-d（依据 advice/015.md，口径纠偏 + 成本分解，不改 planner）**：
+  015 复核认定 B0.6 的 "matched-QoS" 只认证了 **CR 的 QoS**（Gate 只用 CR 的
+  pfa/pmd 字段），Direct8/POTS 从未给 QoS CI，不能声称 "在相同 QoS 下比较 bit"。
+  **P0-1 matched-QoS 语义**：对 **三个方法** 都算 Wilson 95% CI 并分类
+  FEASIBLE / INFEASIBLE / UNCERTAIN（015 §5：A≺B ⟺ A,B∈F_QoS ∧
+  U95(E[B^A−B^B])<0）——只有双方都 FEASIBLE 才允许比较 E[B]；**P0-2 判定降级**：
+  CR 的 bit 结论降为 **COMMON-THRESHOLD BIT LOSS / MATCHED-QoS UNRESOLVED**——
+  Direct8 有更低 raw cost 但未被认证 QoS-feasible 时只写 "Direct8 has lower raw
+  communication cost but is not certified QoS-feasible at this operating point"，
+  不写论文生死 FAIL；**P0-3 regime-map 表述**：B0.4b 只证明状态局部的
+  packetization 相变（g_x(b)=E[min{Y_x,b}]、b*_x state-dependent），**不蕴含**
+  episode 级全局 D(b) 单调或必在 b_setup≈b*₀ 全局 crossover（全局量混入 state
+  occupancy / stopping time / UAV selection / remaining budget / CPI override）——
+  地图改称 **system-level regime diagnostic: no global crossover observed**；
+  **B0.6-d（015 §六）成本分解**：逐 episode 记账 N_tx 与 B_payload，断言恒等式
+  B=b_setup·N_tx+B_payload，报告 E[N_tx]、E[B_payload]、E[T_stop]、P(T_stop=k)
+  ——验证 "CR 贵在 evidence payload 过量而非 transaction 碎片"。
+- **MVS-B0.7-G0（依据 advice/015.md §十/§十三，common-stop 机制 Gate）**：
+  **把 STOP 与 GRANULARITY 拆开**——B0.6 的 CR-vs-D8 同时变了 stopping
+  threshold / candidate policy / granularity / CPI override / transaction
+  count，输赢都无法归因 multi-granularity 机制；G0 用 **完全相同的公共停止
+  控制器** S_λ(x,h)（015 §九 one-step approx：CONTINUE ⟺ min_{a∈A_all}
+  Q_λ^(1)(a|x,h) < R_λ(x)，Q_λ^(1)=c_a+E[R_λ(X')|x,a]，与包粒度无关，对两方法
+  同一判定），只比较 **Direct8（A_D8={(i,8)}）vs Adaptive Granularity
+  （A_FG={(i,1),(i,2),(i,4),(i,8)}）**，两者用同一 one-step Q greedy 选
+  UAV——唯一系统差异 = feedback granularity。**N=4 exact 小系统**（GAMMA=
+  [-1,1,3,5]、levels (1,2,4,8)、r_max=8）；stratified N0=N1；episode 级 CRN
+  （planner 确定性 → CRN 自动）；记账复用 B0.6-d（B=b_setup·N_tx+payload、
+  E[T_stop]、P(T_stop=k)）。Gate（015 §十三 G0）：FG 显著降低 paired E[B]
+  （U95<0）且 QoS 未被证伪（非 INFEASIBLE）→ **granularity 有独立价值，进
+  G1**（N=8 held-out QoS-dual calibration + 双方 Wilson U95 认证）；否则
+  **STOP，关闭 performance-improvement 主线**，转 015 §十四 Direct8-近优
+  lower-bound（V_LB≤V⋆≤V^D8）。冒烟（N0=N1=120，b_setup=16）：FG E[B]=
+  24.63/26.17 vs D8 30.10/32.30（H=48/96）；分解显示 **N_tx 几乎相同而
+  payload 4.83 vs 10.03 → 省的全是 evidence payload**（015 §六预测在
+  common-stop 下成立）。
+- **MVS-B0.7-G1（依据 advice/015.md §七-§九/§十三，held-out QoS-dual 认证）**：
+  **双参数（λ_M 标度 + η_dec=log(λ_F/λ_M)）只在 calibration seeds 上确定**，
+  test seeds 完全 fresh（015 §七 anti-post-hoc 结构）；**停止 = dual 风险**
+  R_λ(x)=min{λ_M p, λ_F(1−p)}，**STOP ⟺ R_λ(x) ≤ min_a Q_λ^(1)(a|x,h)**
+  （Q_λ^(1)=c_a+E[R_λ(X')|x,a]，015 §九 one-step；**移除 |Ω|≥κ 对称硬停**，
+  015 §三指出其无 Bayes 理由）；判决 Ω>η_dec→H1；两方法共用同一 S_λ（公共
+  停止），唯一差异 = granularity（A_FG={1,2,4,8} vs A_D8={8}——实现上
+  A_FG=A_all，S 判定与 FG 动作合并单次遍历）。**N=8**（GAMMA_B、levels
+  (1,2,4,8)、b_setup=16）；calibration N0=N1=300 @ H=96，扫 η_dec∈{1.0…2.0}
+  选"双方 U95(FEASIBLE) 且 E[B^FG]+E[B^D8] 最小"的 **η_star=1.2** 冻结；
+  test N0=N1=600 @ H∈{48,96}。**Gate（015 §十三 G1）**：test 上双方均
+  U95(P_FA)≤0.12 且 U95(P_MD)≤0.40 才比较 U95(E[B^FG−B^D8])<0。
+  **FULL 结果**：**H=96：双方 FEASIBLE（FG U95 0.0509/0.3958、D8 0.0588/
+  0.3515）→ E[D]=−12.31（CI [−13.26, −11.36]）<0 → matched-QoS PASS**；
+  分解 setup 差仅 −1.24、**payload 差 −11.07**（granularity 收益仍几乎全来自
+  evidence payload）；**H=48：双方 P_MD U95 略超 0.40（0.4481/0.4127）→
+  UNCERTAIN（诚实拦截，扩样可解）**，E[D]=−10.02 方向一致。**结论：held-out
+  matched-QoS 口径下 granularity 有独立收益**（论文主线核心证据；B0.6 的 FAIL
+  不是 granularity 机制失败，而是 stopping/selection 未解耦 + matched 口径缺
+  认证——015 预判最有价值结果）。
 - **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
@@ -322,17 +378,31 @@ MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c/B0.4/B0.4r/B0.4s/B0.4a/B0.4a-r/B0.4b/B0.6-pre
 已按 004/005/006/007/008/009/010/011/012/013/014 完成。审计 011 确认 B0.4a 的 CPI
 落地（B0.5 移到 B0.6 之后）；012 完成 B0.4a-r credibility closure；013 完成 B0.4b
 纯理论封板（**B0.4 系列结束**）；B0.6-pre/B0.6-pre-r 算法验收（P0 已修、工程验收
-通过）；**B0.6 matched-QoS 终审完成：CR 未能在 b_setup=16 regime 下省 bits（诚实
-FAIL，详见上文 B0.6 bullet）**：
+通过）；**B0.6 matched-QoS 终审（014 口径）：CR 未能在 b_setup=16 regime 下省 bits
+（诚实 FAIL，详见上文 B0.6 bullet）**；**015 复核后该 FAIL 降级为 COMMON-THRESHOLD
+BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，matched
+比较不成立，详见上文 B0.6-r bullet）**：
 
-- **B0.4a/B0.4a-r/B0.4b/B0.6-pre/B0.6-pre-r/B0.6**（已完成）：CPI（base-anchored +
+- **B0.4a/B0.4a-r/B0.4b/B0.6-pre/B0.6-pre-r/B0.6/B0.6-r**（已完成）：CPI（base-anchored +
   Formal/Operational 分离）、phase-transition 主定理（exact b⋆=7）、sample-complexity
   gate、matched-QoS 终审（CR QoS 达标但 bits 多花 6.9-18.7/episode，regime map 无
-  crossover ⇒ 结论：direct 在该 regime 已近最优）；
+  crossover ⇒ 014 结论：direct 在该 regime 已近最优）、B0.6-r 口径纠偏（三方法
+  QoS CI + FEASIBLE/INFEASIBLE/UNCERTAIN 分类 + system-level regime diagnostic +
+  B0.6-d 成本分解）；
 - **B0.5**：**Bellman sandwich** L_k≤V⋆≤U_k（修正 006 不等式为
-  V_genie≤V⋆≤min{V^{π_b}, R_stop}），把证书从 Q^{π_b} 提升到 Q⋆——**B0.6 已显示
-  当前算法在 b_setup=16 下无通信收益，B0.5 的证书提升不再有实际意义，暂缓**（除非
-  换 regime/算法）；
+  V_genie≤V⋆≤min{V^{π_b}, R_stop}），把证书从 Q^{π_b} 提升到 Q⋆——**B0.6-r 显示
+  当前算法在 b_setup=16 下有 raw bit loss（但 matched-QoS 未决），B0.5 的证书提升
+  暂缓**（除非换 regime/算法；015 §十四：若 B0.7 common-stop 仍输，则把 B0.5 换用途
+  为 Direct8 近优下界证明 V_LB≤V⋆≤V^D8）；
+- **B0.7-G1**（已完成，详见上文 G1 bullet）：held-out QoS-dual 认证——H=96
+  matched-QoS PASS（双方 FEASIBLE、E[D]=−12.31 CI [−13.26,−11.36]）；H=48
+  UNCERTAIN（双方 P_MD U95 略超 0.40，扩样可解）。
+- **B0.7-G2（next）**：fresh held-out matched-QoS Gate + **frozen CPI override**
+  ——在 G1 的 common-stop + QoS-dual 线上把 B0.4a-r 的 CPI 加回（Δ 预算
+  仍按决策序号，base-anchored O(|A|) 置信分配），验证
+  U95(E[B^FG−B^D8])<0 在 CPI 加持下是否保持；若 FG 仍显著省 bits → 论文
+  主线完成闭环（granularity 独立收益 + 可认证 + 可进一步增强）；否则正式
+  关闭 performance-improvement 路线（015 §十三/G2）转入 lower-bound 论文；
 - **B1**（fading/packet errors）仍然最后。
 
 关键算术修正（003.md §8）：MVS-B 每 UAV evidence states =
