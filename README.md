@@ -116,6 +116,24 @@
   （012 §3：独立状态是 episode 第一个决策，δ_1=6δ_episode/π²，取代 stale δ_t）；
   **G2 UNCERTAIN 口径**（012 §2：0 violations 但 override 数 <59 ⇒ 不足以认证
   5% violation rate，不写 FAIL）；新增 t-scan P_override(t∈{1,2,4,8})。
+- **MVS-B0.4b（依据 advice/013.md，Feedback-Granularity Phase-Transition Theorem，
+  纯理论封板，不改 planner）**：主定理 **g_x(b) = Q_prog − Q_dir = E[min{Y_x, b}]**，
+  Y_x = D_x(X₁) − Δ₂，D_x(X₁) = R(X₁) − E[R(X₂)|X₁]（第二阶段纯信息收益），Δ₂ =
+  r_max − r_next；**导数即触发概率** g'₊(b)=Pr(Y_x>b)、g'₋(b)=Pr(Y_x≥b)——
+  setup 开销对 packetization preference 的边际影响 = 第二次反馈 transaction 的
+  触发概率（013 §2，比"存在 threshold"更像论文主定理）；**b⋆ 三情形完整分类**（013 §3）：
+  A E[Y]<0 ⇒ b⋆=∞（progressive 严格占优 ∀b）；B E[Y]=0 ⇒ b⋆=max{0,ess sup Y}，
+  b>b⋆ 是**持平**而非 direct 占优（synthetic Y={−1,+1} 用例防误写）；C E[Y]>0 ⇒
+  唯一有限 crossing（Y≥0 a.s. ⇒ b⋆=0）；物理判据 **b⋆<∞ ⟺ E[D_x]≥Δ₂**（sensing/
+  evidence value vs communication payload，013 §4）；**exact support computation**
+  （013 §5：Y_x 离散 ⇒ g_x 精确分段线性，crossing 闭式 b⋆=b₀−g(b₀)/Pr(Y>b₀)，取代
+  G6 grid 插值；root b⋆=7.0000 精确复现）；四 Gate G0 identity（random reachable
+  states 最大误差 <1e-10，实测 3.9e-13）/G1 shape（monotone+concave+导数=survival）/
+  G2 existence（三情形 100%）/G3 state dependence（finite+∞ 并存 ⇒ 非全局阈值，
+  **不声称** |Ω|/SNR 单调性）；回归 T28–T31。创新定位冻结（013 §8）：**state-dependent
+  packetization phase transition + g'ₓ(b)=P(additional feedback transaction)**，
+  与 B0.4/B0.4a 的 paired-difference certified acquisition 组合；不自称
+  "adaptive quantization" 本身新颖。
 - **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
@@ -194,6 +212,7 @@ python run_mvsb03.py         # B0.3 CR-RBL（约 6–10 分钟，推荐）
 python run_mvsb03a.py        # B0.3a/B0.3c credibility + closure patch（约 6–10 分钟，推荐）
 python run_mvsb04.py         # B0.4 pairwise-difference EB-CS planner（约 5–8 分钟，主算法升级）
 python run_mvsb04a.py        # B0.4a Certified Policy Improvement（约 8–15 分钟）
+python run_mvsb04b.py        # B0.4b phase-transition 定理封板（约 10 秒）
 python test_regressions.py   # regression suite（约 5–7 分钟；运行结束打印 all checks PASS）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
@@ -253,16 +272,15 @@ python smoke_test.py         # 核心模块自检
 ## 下一步（依据 advice/008/009.md 的顺序，MVS-A 封板）
 
 MVS-A 的 G0/G1a/G1b/G2 + R2.1-G0..G4 全部通过，按 003.md 冻结，不再继续优化。
-MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c/B0.4/B0.4r/B0.4s/B0.4a/B0.4a-r 已按 004/005/006/007/008/009/
-010/011/012 完成。审计 011 确认 B0.4a 的 CPI（base-by-default + certified override）落地
-（B0.5 移到 B0.6 之后）；审计 012 完成 B0.4a-r credibility closure（budget-aware base、
-Formal/Operational CPI 分离、base-anchored O(|A|)、δ_1 修复、G2 UNCERTAIN 口径）：
+MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c/B0.4/B0.4r/B0.4s/B0.4a/B0.4a-r/B0.4b 已按
+004/005/006/007/008/009/010/011/012/013 完成。审计 011 确认 B0.4a 的 CPI 落地
+（B0.5 移到 B0.6 之后）；审计 012 完成 B0.4a-r credibility closure；审计 013 完成
+B0.4b 纯理论封板（Feedback-Granularity Phase-Transition Theorem，见上文 B0.4b
+bullet）——**B0.4 系列至此结束，不再继续优化**：
 
-- **B0.4a/B0.4a-r**（已完成，见上文 B0.4s/B0.4a 与 B0.4a-r bullet）：uncertified ⇒ base
-  （VoI-base fallback）；certified override（U_{c,a_b}<0 才切换，base-anchored）；
-  Formal-CPI 承担 safety claim、Operational-CPI 只做性能探索；
-- **B0.4b**：正式 b⋆(x) 定理（B0.3c 已验证存在性判据：b⋆<∞ ⟺ E[Y_x]≥0；
-  E[Y_x]<0 ⟹ progressive dominates direct for every b_h≥0）；
+- **B0.4a/B0.4a-r/B0.4b**（已完成）：uncertified ⇒ base（VoI-base fallback）；
+  certified override（U_{c,a_b}<0，base-anchored）；Formal/Operational CPI 分离；
+  phase-transition 主定理 + exact b⋆（root=7.0000，三情形分类）；
 - **B0.6-pre**：N=4 exact / N=8 shallow sample-complexity gate（先验收算法）；
 - **B0.6**：matched QoS + CI，CR vs Direct8/POTS（**论文生死 Gate**：P_FA^CR≤α、
   P_MD^CR≤β、E[B]^CR<E[B]^D8 with CI）——若 E[B]^CR≥E[B]^Direct8，论文诚实结论为

@@ -26,6 +26,10 @@ not a tuning issue.  The suite covers:
   T19 anytime CI coverage (B0.3a; statistical sanity — NOT a deterministic invariant)
   T20 paired-CRN estimator identity + variance reduction (B0.3a)
   T21 natural decision threshold = log(mu_F/mu_M), locked to eval_exact (B0.3c)
+  T28 strategy-value identity Q_prog-Q_dir = E[min{Y_x,b}] (B0.4b)
+  T29 right/left derivative of g_x = survival Pr(Y>b)/Pr(Y>=b) (B0.4b)
+  T30 three synthetic branches E[Y]<0 / =0 / >0 incl. E[Y]=0 plateau (B0.4b)
+  T31 exact-support b*(x) = strategy switch point of Q_prog vs Q_dir (B0.4b)
 
 Deterministic invariants (T01-T15, T17a, T18, T20 identity part): a failure is a bug.
 Statistical audits (T16, T17b, T19, T20 variance part): assertions carry explicit
@@ -598,6 +602,133 @@ def run():
     check("T27 CPI override safety on exact (matched base)",
           n_viol27 == 0,
           f"overrides={n_ov27} violations={n_viol27}")
+
+    # ------------------------------------------------------------- T28-T31
+    # B0.4b (advice/013.md): Feedback-Granularity Phase-Transition Theorem.
+    # T28  strategy-value identity  Q_prog - Q_dir = E[min{Y_x, b}]  (< 1e-10)
+    # T29  right/left derivative = survival  g'_{+}(b)=Pr(Y>b), g'_{-}(b)=Pr(Y>=b)
+    # T30  three synthetic branches  E[Y]<0 / =0 / >0  (incl. the E[Y]=0 plateau)
+    # T31  exact-support b* = strategy switch point of Q_prog vs Q_dir
+    print("\nT28-T31 B0.4b phase-transition theorem (advice/013.md)")
+    from opmvs.phase_boundary import (bstar_exact, bstar_from_dist,
+                                      g_alt, g_from_support, survival,
+                                      verify_identity, y_support)
+    pl_b4 = sp.SparsePlanner(quants, 256.0, 256.0 * np.exp(1.0), b_h=0.0,
+                             cross_level=True, levels=(1, 2, 4))
+
+    def reachable4(rng_, n):
+        """random reachable N=4 states (legal refinement sequences)."""
+        out = []
+        while len(out) < n:
+            z = [0] * 4
+            for _ in range(int(rng_.integers(0, 3))):
+                cand = [i for i in range(4) if pl_b4._tpl[i][z[i]]]
+                if not cand:
+                    break
+                i = int(cand[rng_.integers(0, len(cand))])   # draw a UAV id
+                tpl = pl_b4._tpl[i][z[i]]
+                r2 = tpl[int(rng_.integers(0, len(tpl)))][0]
+                z[i] = z_code_b(r2, int(rng_.integers(0, 2 ** r2)))
+            x = sum(int(z[i]) * (sp.BASE_B ** i) for i in range(4))
+            zs = pl_b4.decode(x)
+            if any(pl_b4._tpl[i][zs[i]] for i in range(4)):
+                out.append(x)
+        return out
+
+    rng_b = np.random.default_rng(28)
+    states_b = reachable4(rng_b, 30)
+    bvals = [0.0, 2.0, 4.0, 8.0, 16.0, 32.0]
+    max_dev_b = 0.0
+    max_tower_b = 0.0
+    n_ok_deriv = 0
+    n_deriv = 0
+    n_switch_ok = 0
+    n_switch = 0
+    n_cases = {"A": 0, "B": 0, "C": 0}
+    for x in states_b:
+        zs = pl_b4.decode(x)
+        for i in range(4):
+            if not pl_b4._tpl[i][zs[i]]:
+                continue
+            sup = y_support(pl_b4, x, i)
+            if sup is None:
+                continue
+            # T28 identity
+            dev, tower = verify_identity(sup, bvals)
+            max_dev_b = max(max_dev_b, dev)
+            max_tower_b = max(max_tower_b, tower)
+            # T29 derivative = survival (exact support, structural)
+            ys = sorted({float(br[5]) for br in sup["branches"]})
+            bps = sorted(set([0.0] + [v for v in ys if v > 0.0]))
+            deriv_ok = True
+            for a in range(len(bps) - 1):
+                b_l, b_r = bps[a], bps[a + 1]
+                if b_r <= b_l + 1e-12:
+                    continue
+                mid = 0.5 * (b_l + b_r)
+                slope = (g_from_support(sup, b_r) - g_from_support(sup, b_l)) \
+                    / (b_r - b_l)
+                deriv_ok &= abs(slope - survival(sup, mid)) < 1e-9
+            h = 1e-6
+            for yk in ys:
+                if yk < 0:
+                    continue
+                gk_at = g_from_support(sup, yk)
+                r_slope = (g_from_support(sup, yk + h) - gk_at) / h
+                l_slope = (gk_at - g_from_support(sup, yk - h)) / h
+                deriv_ok &= abs(r_slope - survival(sup, yk, strict=True)) < 1e-5
+                deriv_ok &= abs(l_slope - survival(sup, yk, strict=False)) < 1e-5
+            n_deriv += 1
+            n_ok_deriv += int(deriv_ok)
+            # T31 exact b* = strategy switch point
+            r_ = bstar_exact(sup)
+            n_cases[r_["case"]] += 1
+            bs = r_["bstar"]
+            eps = 1e-6
+            if bs == float("inf"):                    # Case A: g < 0 always
+                sw = g_from_support(sup, 32.0) < 0.0 and g_alt(sup, 32.0) < 0.0
+            elif abs(bs) < 1e-9:                      # b* = 0 (Y >= 0 a.s.)
+                sw = g_from_support(sup, eps) >= -1e-9 \
+                    and g_alt(sup, eps) >= -1e-9
+            else:
+                gl = g_from_support(sup, bs - eps)
+                gr = g_from_support(sup, bs + eps)
+                al = g_alt(sup, bs - eps)
+                ar = g_alt(sup, bs + eps)
+                if r_["case"] == "B":                 # plateau: g == 0 at/above
+                    sw = (gl < 0.0) and abs(gr) < 1e-6 and abs(ar) < 1e-6
+                else:                                 # Case C: sign change
+                    sw = (gl < 0.0) and (gr > 0.0) and (al < 0.0) and (ar > 0.0)
+            n_switch += 1
+            n_switch_ok += int(sw)
+    check("T28 strategy-value identity (< 1e-10)",
+          max_dev_b < 1e-10 and max_tower_b < 1e-10,
+          f"max|g-Qprog+Qdir|={max_dev_b:.2e} tower={max_tower_b:.2e}")
+    check("T29 derivative = survival (exact support)",
+          n_ok_deriv == n_deriv,
+          f"{n_ok_deriv}/{n_deriv}")
+    # T30 synthetic three-case branches (013 §3)
+    r30a = bstar_from_dist([0.5, 0.5], [-2.0, -1.0])     # E[Y] < 0
+    r30b = bstar_from_dist([0.5, 0.5], [-1.0, 1.0])      # E[Y] = 0 (audit case)
+    r30c = bstar_from_dist([0.5, 0.5], [-1.0, 3.0])      # E[Y] > 0, P(Y<0)>0
+    r30c0 = bstar_from_dist([0.5, 0.5], [1.0, 3.0])      # Y >= 0 a.s.
+    gB = lambda b: 0.5 * min(-1.0, b) + 0.5 * min(1.0, b)
+    ok30 = (
+        r30a["case"] == "A" and r30a["bstar"] == float("inf")
+        and all(0.5 * min(-2.0, b) + 0.5 * min(-1.0, b) <= r30a["EY"] + 1e-9
+                for b in (0.0, 4.0, 32.0))
+        and r30b["case"] == "B" and abs(r30b["bstar"] - 1.0) < 1e-9
+        and gB(0.5) < 0.0 and abs(gB(1.0)) < 1e-9 and abs(gB(2.0)) < 1e-9
+        and r30c["case"] == "C" and abs(r30c["bstar"] - 1.0) < 1e-9
+        and r30c0["case"] == "C" and abs(r30c0["bstar"] - 0.0) < 1e-9
+    )
+    check("T30 three synthetic branches (E[Y]<0/=0/>0)",
+          ok30,
+          f"A:{r30a['case']}/{r30a['bstar']} B:{r30b['case']}/{r30b['bstar']} "
+          f"C:{r30c['case']}/{r30c['bstar']} C0:{r30c0['case']}/{r30c0['bstar']}")
+    check("T31 exact-support b* = strategy switch point",
+          n_switch_ok == n_switch,
+          f"{n_switch_ok}/{n_switch} cases={n_cases}")
 
     print(f"\n=== {len(PASS)} passed, {len(FAIL)} failed ({time.time()-t0:.0f}s) ===")
     for name, d in FAIL:
