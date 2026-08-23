@@ -155,6 +155,27 @@
   PASS ⇒ **ENGINEERING ACCEPTANCE，正式统计认证交 B0.6 stratified matched-QoS**。
   顺带修 CPI.decide 的 anchor clamp（012 §5 budget-aware：名义 base 动作在 h 下不可
   负担 ⇒ anchor=STOP，T32 回归）。
+- **MVS-B0.6（依据 advice/014.md §4-§6，论文生死 Gate）**：**matched-QoS 下 CR vs
+  optimized Direct8（POTS 第二 comparator）**。协议冻结：**stratified N0=N1**（H0/H1
+  独立采样，初始 N0=N1=600、escalation 1000/1600/2500）；episode 级 **CRN**（同一
+  physical world W_e=(H_e,L_e) 给三个算法，planner RNG 独立）；radio cost 与
+  planning cost 分离（B_radio=Σ(b_setup+Δr_t)，CPI worlds 只算 compute）；判决阈值
+  η_nat=log(μ_F/μ_M)=1（T21）；CR = 冻结的 SNR anchor + Operational-CPI
+  （betting，w_ep=1000 pilot，δ_t 按决策序号）；Direct8 = optimized（SNR-order 全包
+  + η_nat stop；direct_only planner 在 H=96 不可行——256⁴ cells）；POTS = round-robin
+  渐进。Gate：U95(P_FA^CR)≤α=0.12、U95(P_MD^CR)≤β=0.40（natural Bayes 工作区）、
+  **U95(E[D_e^D8])<0**（episode-paired D_e^D8=B_e^CR−B_e^D8）；三态
+  PASS/FAIL/UNCERTAIN（扩样）。**结果（N0=N1=600，w_ep=1000）**：H=48/96 的 CR QoS
+  全 PASS（P_FA U95 0.101/0.095、P_MD U95 0.392/0.253），但 **bit Gate FAIL 决定性**——
+  CR 比 optimized Direct8 多花 +6.93（CI [6.41,7.45]）/+18.75（CI [17.65,19.84]）
+  bits/episode；NP-matched（P_FA=0.05）视角 CR P_D=0.563/0.752 vs D8 0.440/0.488
+  （CR 用更多 bits 买更好检测）。**b_setup∈{0,4,8,16,32} regime map（secondary，
+  预先声明）**：CR 在所有 b_setup 都更贵（D=+11.8…+20.3），**理论预测的 crossover
+  未出现**——瓶颈是冻结 base 的保守停止（|Ω|≥2，eta_b=2）vs Direct8 的 η_nat=1，
+  而非 packetization granularity。**诚实结论（014 §7）：phase transition 与
+  state-dependent adaptive packetization 理论成立（B0.4b 已验证），但在当前
+  b_setup=16 regime 下 optimized direct packetization 已接近最优通信工作区间；
+  不再改算法"调赢"。**
 - **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
@@ -236,6 +257,8 @@ python run_mvsb04a.py        # B0.4a Certified Policy Improvement（约 8–15 �
 python run_mvsb04b.py        # B0.4b phase-transition 定理封板（约 10 秒）
 python run_mvsb06pre.py      # B0.6-pre sample-complexity gate（约 4–15 分钟）
 python run_mvsb06prer.py     # B0.6-pre-r credibility patch（014，约 5–20 分钟）
+python run_mvsb06.py         # B0.6 matched-QoS gate（约 25–40 分钟）
+python run_mvsb06.py --map   # B0.6 + b_setup regime map（secondary，约 30–50 分钟）
 python test_regressions.py   # regression suite（约 5–7 分钟；运行结束打印 all checks PASS）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
@@ -295,28 +318,21 @@ python smoke_test.py         # 核心模块自检
 ## 下一步（依据 advice/008/009.md 的顺序，MVS-A 封板）
 
 MVS-A 的 G0/G1a/G1b/G2 + R2.1-G0..G4 全部通过，按 003.md 冻结，不再继续优化。
-MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c/B0.4/B0.4r/B0.4s/B0.4a/B0.4a-r/B0.4b/B0.6-pre/B0.6-pre-r
+MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c/B0.4/B0.4r/B0.4s/B0.4a/B0.4a-r/B0.4b/B0.6-pre/B0.6-pre-r/B0.6
 已按 004/005/006/007/008/009/010/011/012/013/014 完成。审计 011 确认 B0.4a 的 CPI
 落地（B0.5 移到 B0.6 之后）；012 完成 B0.4a-r credibility closure；013 完成 B0.4b
-纯理论封板（**B0.4 系列结束**）；B0.6-pre 算法方向验收 + B0.6-pre-r 三项 P0 修补
-（h-aware 状态、SNR anchor 冻结、CI 判定；详见上文 bullet）：
+纯理论封板（**B0.4 系列结束**）；B0.6-pre/B0.6-pre-r 算法验收（P0 已修、工程验收
+通过）；**B0.6 matched-QoS 终审完成：CR 未能在 b_setup=16 regime 下省 bits（诚实
+FAIL，详见上文 B0.6 bullet）**：
 
-- **B0.4a/B0.4a-r/B0.4b/B0.6-pre/B0.6-pre-r**（已完成）：CPI（base-anchored +
+- **B0.4a/B0.4a-r/B0.4b/B0.6-pre/B0.6-pre-r/B0.6**（已完成）：CPI（base-anchored +
   Formal/Operational 分离）、phase-transition 主定理（exact b⋆=7）、sample-complexity
-  gate（P0 已修，工程验收通过；P(gap≤2) 的 0.80/0.75 统计认证 UNCERTAIN，交 B0.6）；
-- **B0.6**：matched QoS + CI，CR vs Direct8（POTS 为第二 comparator；014 §4：打赢
-  POTS 不够，生死点是统计显著打赢 optimized Direct8）。协议（014 §5-§6）：episode
-  级 CRN（同一 physical world 给 CR/D8/POTS，planner RNG 独立）；radio cost 与
-  planning cost 分开（B_radio=Σ(b_setup+Δr_t)，CPI worlds 只算 compute）；episode-paired
-  difference D_e^{D8}=B_e^{CR}−B_e^{D8}，PASS ⟺ U95(E[D_e^{D8}])<0 且 QoS 单侧 CI
-  达标（U95(P_FA^CR)≤α、U95(P_MD^CR)≤β）；三态判定 PASS/FAIL/UNCERTAIN（扩样）；
-  **stratified evaluation N0=N1=1500**（初始）→ 2000/3000/5000（CI 未决时 escalation）；
-  pilot w_ep=1000 冻结（014 §3）。若 E[B]^CR≥E[B]^Direct8：诚实结论 = phase
-  transition 理论成立、但 b_setup=16 regime 下 optimized direct 已近最优；再做
-  b_setup∈{0,4,8,16,32} regime map（预先声明为 secondary analysis）；
+  gate、matched-QoS 终审（CR QoS 达标但 bits 多花 6.9-18.7/episode，regime map 无
+  crossover ⇒ 结论：direct 在该 regime 已近最优）；
 - **B0.5**：**Bellman sandwich** L_k≤V⋆≤U_k（修正 006 不等式为
-  V_genie≤V⋆≤min{V^{π_b}, R_stop}），把证书从 Q^{π_b} 提升到 Q⋆——只在 B0.6 显示
-  算法有实际通信价值后做；
+  V_genie≤V⋆≤min{V^{π_b}, R_stop}），把证书从 Q^{π_b} 提升到 Q⋆——**B0.6 已显示
+  当前算法在 b_setup=16 下无通信收益，B0.5 的证书提升不再有实际意义，暂缓**（除非
+  换 regime/算法）；
 - **B1**（fading/packet errors）仍然最后。
 
 关键算术修正（003.md §8）：MVS-B 每 UAV evidence states =
