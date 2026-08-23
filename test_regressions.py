@@ -526,6 +526,79 @@ def run():
           n_best25 / n_tri25 >= 0.7,
           f"P(eps-opt(8)) = {n_best25}/{n_tri25}")
 
+    # T26 (011 §7): VoIBase Q1 identity — Q_a^(1) = c_a + E[R_stop(X')|x,a]
+    # computed by the base must equal an independent direct expectation.
+    from opmvs.rbl_eb import VoIBase, CPI
+    voi26 = VoIBase(bhA)
+    rng26 = np.random.default_rng(26)
+    ok26 = True
+    for trial in range(30):
+        z = [0] * 4
+        for u in range(int(rng26.integers(0, 3))):
+            i = int(rng26.integers(0, 4))
+            r = (1, 2, 4)[int(rng26.integers(0, 3))]
+            z[i] = z_code_b(r, int(rng26.integers(0, 2 ** r)))
+        x = sum(int(z[i]) * (sp.BASE_B ** i) for i in range(4))
+        pl26 = crA.pl
+        if not crA.feasible_actions(x, 40):
+            continue
+        for (i, r2) in crA.feasible_actions(x, 40):
+            q1 = voi26.q1(pl26, x, (i, r2))
+            # independent: c_a + sum_m w_m R_stop(child)
+            zi = (x // pl26.powers[i]) % sp.BASE_B
+            r_old, _ = sp.z_decode_b(zi)
+            c = bhA + (r2 - r_old)
+            om = pl26.omega(x)
+            lp = float(log_sigmoid(om))
+            lq = float(log_one_minus_sigmoid(om))
+            cells = next(cells for (r2b, _ct, _qb, cells) in pl26._tpl[i][zi]
+                         if r2b == r2)
+            E = 0.0
+            for (m2, lp0c, lp1c) in cells:
+                a_ = lp + lp1c
+                b_ = lq + lp0c
+                m_ = a_ if a_ >= b_ else b_
+                w = float(np.exp(m_ + np.log1p(np.exp(-abs(a_ - b_)))))
+                cx = x + (z_code_b(r2, m2) - zi) * pl26.powers[i]
+                E += w * pl26.r_stop(cx)
+            ok26 &= abs(q1 - (c + E)) < 1e-9
+    check("T26 VoIBase Q1 = c + E[R_stop(X')] identity", ok26)
+
+    # T27 (011 §3/§8-3): CPI certified overrides are SAFE on the N=4 exact
+    # oracle with the MATCHED base (the VoI-base the rollouts follow):
+    # Q_{a_override}^{pi_b} <= Q_{a_b}^{pi_b} whenever U_{c,a_inc} < 0 fired.
+    cr_voi27 = CRRBL(quants, 256.0, 256.0 * np.exp(1.0), bhA, voi26,
+                     levels=(1, 2, 4), delta_c=1.0, seed=7)
+    rng27 = np.random.default_rng(27)
+    n_ov27 = 0
+    n_viol27 = 0
+    for trial in range(12):
+        z = [0] * 4
+        for u in range(int(rng27.integers(0, 3))):
+            i = int(rng27.integers(0, 4))
+            r = (1, 2, 4)[int(rng27.integers(0, 3))]
+            z[i] = z_code_b(r, int(rng27.integers(0, 2 ** r)))
+        x = sum(int(z[i]) * (sp.BASE_B ** i) for i in range(4))
+        Qp = exact_qa_pi_b(cr_voi27, x, 40)
+        if not Qp:
+            continue
+        R0v = cr_voi27.pl.r_stop(x)
+        omv = cr_voi27.pl.omega(x)
+        a_b = voi26.act(cr_voi27.pl, x, omv, h=40)
+        qb = R0v if a_b is None else Qp.get(a_b, np.inf)
+        cpi27 = CPI(quants, 256.0, 256.0 * np.exp(1.0), bhA, voi26,
+                    levels=(1, 2, 4), delta_c=1.0, seed=3, cs_mode="betting")
+        cpi27.cr.rng = np.random.default_rng(27000 + trial)
+        a_e, info = cpi27.decide(x, 40, delta_t=0.01, max_worlds=1500)
+        if not info["override"]:
+            continue
+        n_ov27 += 1
+        qe = R0v if a_e is None else Qp.get(a_e, np.inf)
+        n_viol27 += int(qe > qb + 1e-9)
+    check("T27 CPI override safety on exact (matched base)",
+          n_viol27 == 0,
+          f"overrides={n_ov27} violations={n_viol27}")
+
     print(f"\n=== {len(PASS)} passed, {len(FAIL)} failed ({time.time()-t0:.0f}s) ===")
     for name, d in FAIL:
         print(f"  FAILED: {name} {d}")

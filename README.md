@@ -91,6 +91,20 @@
   **R4 G2 改为硬 rollout 预算曲线** P(Q−Q_min≤2) vs R∈{1000,3000,6000,12000}；
   **R5 G4 表述修正**——per-world rollout O(|A|)→O(1)，但总 certification complexity 仍
   随 |A|（log P 置信分配 + O(|A|) challenger 搜索 + O(|A|²) pair 存储）。
+- **MVS-B0.4s/B0.4a（依据 advice/011.md）**：**B0.4s 基础设施收口**——smoke 输出改到
+  `report/smoke/` 独立路径 + FULL 文件 hash 不变断言（防覆盖回归）；删除 `z_code_b`
+  未用 import 与 `last_cand` 死变量；Maurer–Pontil 引用修正为 **Theorem 4**（
+  √(2V log(2/δ)/n)+7log(2/δ)/(3(n−1)) 是 MP Thm 4；代码用 (n−1) 分母更保守，纯引用
+  编号修正）。**B0.4a Certified Policy Improvement**——`base by default; override
+  only with certified evidence`：a_inc⁽⁰⁾=a_b（**one-step conditional-VoI base**，
+  Q_a⁽¹⁾=c_a+E[R_stop(X')|x,a]，STOP 当 VoI≤0），challenger c 仅在 pairwise CS 证明
+  U_{c,a_inc}<0 时替换 incumbent（monotone improvement chain ⇒ V^{π_CPI}≤V^{π_b}）；
+  episode 级 δ：决策 t 花 δ_t=6δ_episode/(π²t²)，决策内每 pair α=δ_t/P ⇒
+  P(所有 override 有效)≥1−δ_episode。实现修复：STOP 作为 challenger 时误用 base-rollout
+  而非精确 R_stop（P0）、challenger 选择卡在"真 Δ>0 的 pair"（改 point-estimate 聚焦 +
+  消除）。四 Gate：G0 fallback tail、G1/G2 override 收益与安全性（N=4 exact matched-base
+  + binomial U95）、G3 VoI-base 强度。关键口径：CPI 的 exact oracle 必须与 rollout 的
+  base 匹配（SNR-base oracle 检查 VoI-base rollouts 会产生假 violation）。
 - **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
@@ -168,6 +182,7 @@ python run_mvsb01a.py        # MVS-B0.1a 补丁（约 1 分钟）
 python run_mvsb03.py         # B0.3 CR-RBL（约 6–10 分钟，推荐）
 python run_mvsb03a.py        # B0.3a/B0.3c credibility + closure patch（约 6–10 分钟，推荐）
 python run_mvsb04.py         # B0.4 pairwise-difference EB-CS planner（约 5–8 分钟，主算法升级）
+python run_mvsb04a.py        # B0.4a Certified Policy Improvement（约 8–15 分钟）
 python test_regressions.py   # regression suite（约 5–7 分钟；运行结束打印 all checks PASS）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
@@ -227,12 +242,13 @@ python smoke_test.py         # 核心模块自检
 ## 下一步（依据 advice/008/009.md 的顺序，MVS-A 封板）
 
 MVS-A 的 G0/G1a/G1b/G2 + R2.1-G0..G4 全部通过，按 003.md 冻结，不再继续优化。
-MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c/B0.4/B0.4r 已按 004/005/006/007/008/009/010 完成。
-审计 009/010 确认 B0.4 方向成立并完成 credibility patch（B0.5 移到 B0.6 之后）：
+MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c/B0.4/B0.4r/B0.4s/B0.4a 已按 004/005/006/007/008/009/
+010/011 完成。审计 011 确认 B0.4a 的 CPI（base-by-default + certified override）落地
+（B0.5 移到 B0.6 之后）：
 
-- **B0.4a**：uncertified ⇒ **fallback to base policy**；certified policy improvement
-  （U(D_a)<0 才 override，D_a=Q_a^{π_b}−Q_{a_b}^{π_b}）；one-step conditional-VoI base
-  a_b(x)=argmin_a[c_a+E[R_stop(X')|x,a]] 替换 SNR-base 做 ablation；
+- **B0.4a**（已完成，见上文 B0.4s/B0.4a bullet）：uncertified ⇒ base（VoI-base fallback）；
+  certified override（U_{c,a_inc}<0 才切换，persistent incumbent）；VoI-base 已落地并
+  作为 CPI 的 rollout base；
 - **B0.4b**：正式 b⋆(x) 定理（B0.3c 已验证存在性判据：b⋆<∞ ⟺ E[Y_x]≥0；
   E[Y_x]<0 ⟹ progressive dominates direct for every b_h≥0）；
 - **B0.6-pre**：N=4 exact / N=8 shallow sample-complexity gate（先验收算法）；

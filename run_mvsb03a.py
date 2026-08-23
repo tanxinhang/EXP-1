@@ -762,9 +762,25 @@ def main():
     out("")
     out("")
     out("")
-    rp = os.path.join(OUT_DIR, "MVS-B0.3a_report.md")
+    # B0.4s (011): smoke writes to a SEPARATE path and must never touch the
+    # FULL report — guard by hashing the FULL file before and after.
+    full_rp = os.path.join(OUT_DIR, "MVS-B0.3a_report.md")
+    import hashlib
+
+    def _md5(p):
+        if not os.path.exists(p):
+            return None
+        with open(p, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()
+
+    full_hash_before = _md5(full_rp)
+    rp = os.path.join(OUT_DIR, "smoke", "MVS-B0.3a_report.md") if SMOKE else full_rp
+    os.makedirs(os.path.dirname(rp), exist_ok=True)
     with open(rp, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
+    if SMOKE and full_hash_before is not None:
+        assert _md5(full_rp) == full_hash_before, \
+            "SMOKE run modified the FULL report — path separation broken"
     print(f"\n[report] -> {rp}")
 
 
