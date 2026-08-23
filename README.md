@@ -38,12 +38,28 @@
   H=48/64/96/120 无全 cone）、G5（matched QoS 方向性）；创新定位：
   Confidence-certified feedback-granularity-aware evidence acquisition over a
   variable-cost nested-evidence DAG。
+- **MVS-B0.3a（依据 advice/007.md，credibility patch）**：修复 B0.3 的口径问题——
+  **P0-A 真正跨 action CRN**：每次 MC 迭代采样一个 latent world
+  W_m=(H_m, M_1^(8), …, M_N^(8))|x，所有候选动作在同一 W_m 上求值 G_a(W_m)。
+  实现发现 world 必须含隐假设 H_m（先按后验采 H、再按 H-条件分布采各 UAV cell）——
+  逐 UAV 边缘独立采样破坏 H 诱导的跨 UAV 相关性，会使 rollout 估计系统性偏高
+  ~12 bits（对 N=4 exact oracle 验证）；修正后 paired-CRN 方差比
+  Var(G_a−G_b)/[Var(G_a)+Var(G_b)] ≈ 0.08–0.15（相对独立采样降 7–12 倍）；
+  **P0-B certificate 竞争集含 STOP**（R_stop(x)=min{C₀₁p,C₁₀(1−p)} 精确项：
+  reporting 动作需 U_â ≤ min{R_stop, min L_b}+ε）；
+  **P0-C G0 oracle = Q_a^{π_b}**（exact_qa_pi_b，非 Q_a^⋆）；**P0-D G1/G3 STOP oracle =
+  R_stop(x)**（非 base_policy_value）；**P0-E G5 硬预算** h_t=H−C_t pathwise、C_T≤H 逐样本
+  成立；**P1-A anytime coverage gate**（∀n≤n_max）；**P1-B binomial U95 violation gate +
+  certification rate**（0-violation 需 ≥59 certified 样本使 U95≤0.05）；**P1-C 回归不变量
+  T15–T20**；**P1-D b⋆ 重表述为 root-state threshold**：g_x(b)=E[min{Y_x,b}] 非减凹、
+  g_x'(b)=Pr(Y_x>b)，b⋆(x)=inf{b:g_x(b)≥0} 为 state-dependent packetization phase
+  boundary（根状态 b⋆(x₀)=7.0，1-bit 子状态 b⋆=∞ ⇒ direct regime）。
 - **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
   （Q_prog−Q_dir = E[min{D(x')−Δ₂, b_h}]，b_h=0 ⇒ 渐进支配）；q<7/23 降为 Corollary 并新增
   E[C_future|M^(1)]<7 判据；feedback/setup 成本（b_setup）敏感性；正式 regression test suite
-  （22 项全过）；创新定位：**Feedback-Granularity-Aware Adaptive Evidence Acquisition**。
+  （30 项全过）；创新定位：**Feedback-Granularity-Aware Adaptive Evidence Acquisition**。
 - **MVS-B0（依据 adcice/004.md）**：**sparse tuple-state backend**
   （状态 x=(z_1..z_N)、Ω 现场计算、动作/PMF on-demand、memo key (x,h)、
   279^8 不建全表）；N=4 与旧 eager 表等价认证（B0-G0）；N=8/R={1,2,4,8}
@@ -65,7 +81,8 @@ Exp-1/
 ├── run_mvsb01.py           # MVS-B0.1 流水线：可信度修复 + VoI 定理 + Adaptive Direct-8
 ├── run_mvsb01a.py          # MVS-B0.1a 补丁：seed-aware POTS + ΔQ 相变 + 保守 lattice
 ├── run_mvsb03.py           # B0.3 CR-RBL：认证 rollout 规划器（主交付）
-├── test_regressions.py     # 正式 regression test suite（22 项数学不变量）
+├── run_mvsb03a.py          # B0.3a credibility patch：paired CRN + STOP 证书 + 硬预算 + b⋆(x) 相变
+├── test_regressions.py     # 正式 regression test suite（30 项数学不变量）
 ├── smoke_test.py           # 核心模块快速冒烟测试
 ├── requirements.txt
 ├── opmvs/                  # MVS-A 实现包
@@ -78,7 +95,7 @@ Exp-1/
 │   ├── rbl.py              # R2: resource-bounded lookahead + (idx,h) 精确传播 + OnlinePlanner
 │   ├── cmdp.py             # R2.1: CMDP column generation（LP master + ExactDP pricing）
 │   ├── sparse.py           # MVS-B0: sparse tuple-state planner（279^8 不建表）
-│   ├── rbl_cr.py           # B0.3: CR-RBL（certified rollout RBL）
+│   ├── rbl_cr.py           # B0.3/B0.3a: CR-RBL（LatentWorld paired CRN + STOP 证书 + exact_qa_pi_b）
 │   ├── eval_exact.py       # R1: 精确前向概率传播 + G1a/G1b + 精确 P_D,max
 │   ├── baselines.py        # B0–B11 + 公平基线精确 table-policy 构建
 │   ├── mc.py               # 向量化 Monte Carlo + 随机化 Neyman-Pearson 评估
@@ -92,6 +109,7 @@ Exp-1/
     ├── MVS-B0.1_report.md      # MVS-B0.1 可信度修复 + 理论拔高报告
     ├── MVS-B0.1a_report.md     # B0.1a 补丁报告
     ├── MVS-B0.3_report.md      # B0.3 CR-RBL 认证 rollout 报告（主交付）
+    ├── MVS-B0.3a_report.md     # B0.3a credibility patch 报告（paired CRN/STOP 证书/硬预算/b⋆ 相变）
     └── figures/            # 量化器 / Pareto / 精度审计 / R1 / R2 / R2.1 图
 ```
 
@@ -108,7 +126,8 @@ python run_mvsb0.py          # MVS-B0 流水线（约 6–15 分钟）
 python run_mvsb01.py         # MVS-B0.1 流水线（约 20–30 分钟）
 python run_mvsb01a.py        # MVS-B0.1a 补丁（约 1 分钟）
 python run_mvsb03.py         # B0.3 CR-RBL（约 6–10 分钟，推荐）
-python test_regressions.py   # regression suite（约 3–4 分钟）
+python run_mvsb03a.py        # B0.3a credibility patch（约 6–10 分钟，推荐）
+python test_regressions.py   # regression suite（约 4–5 分钟）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
 python run_mvsa_r11.py --smoke
@@ -164,16 +183,23 @@ python smoke_test.py         # 核心模块自检
     动作/值全等价（0 不一致）；部署时 root 求解稀疏率 ~3%；
   - η_rec（重定义，用 B_CMDP\* 与 receding H<16 的 B_RBL）达标硬 Gate ≥50%。
 
-## 下一步（MVS-B0/B1/B2，MVS-A 封板）
+## 下一步（依据 advice/007.md 的开发顺序，MVS-A 封板）
 
 MVS-A 的 G0/G1a/G1b/G2 + R2.1-G0..G4 全部通过，按 003.md 冻结，不再继续优化。
-进入 MVS-B 分三步（每次只加一个新变量）：
+MVS-B0/B0.1/B0.1a/B0.3/B0.3a 已按 004/005/006/007 完成。审计 007 指定的后续顺序：
 
-- **MVS-B0**：`b_h = 16` + cross-level actions（验证 b_h>0 后跨级动作恢复价值，
-  闭合 R1 的"cross-level 在 b_h=0 被弱支配"理论闭环）；
-- **MVS-B1**：异构 ARQ-collapsed 成本 `c̄_a = (b_h + r'−r)/p_i^succ`（非整数成本 ⇒
-  R2.1-G3 的稀疏递归 planner 需实数 budget 处理）；
-- **MVS-B2**：显式 packet-loss（failure self-loop）与 collapsed 版本 A/B 对照。
+- **B0.3b**：CR-RBL regression invariants（T15–T20，已随 B0.3a 落地）；
+- **B0.4**：true latent-world coupling + **paired-difference EB-CS**（从 arm-wise
+  估计升级为直接估计 Δ_{a,b}=Q_a^{π_b}−Q_b^{π_b}，利用 nested coupling 的
+  Var(Z)≪Var(G_a)+Var(G_b)，当前已测到 ratio≈0.14）；
+- **B0.4a**：uncertified ⇒ **fallback to base policy**（只在 U(D_a)<0 时 override，
+  certified policy improvement）；one-step conditional-VoI base 替换 SNR-base 做 ablation；
+- **B0.4b**：正式 state-dependent b⋆(x) 定理与 phase diagram（G6 已给数值验证）；
+- **B0.5**：**Bellman sandwich** L_k≤V⋆≤U_k（修正 006 的不等式为
+  V_genie≤V⋆≤min{V^{π_b}, R_stop}），把证书从 Q^{π_b} 提升到 Q⋆；
+- **B0.6**：matched QoS vs Direct8/POTS 的正式比较（论文生死 Gate：P_FA^CR≤α、
+  P_MD^CR≤β、E[B]^CR<E[B]^D8 with CI）；
+- **B1**（fading/packet errors）只在 B0.6 PASS 后进入。
 
 关键算术修正（003.md §8）：MVS-B 每 UAV evidence states =
 **1+2+4+16+256 = 279**（不是 47）；279⁸ ≈ 1e19 ⇒ **MVS-B 禁止复用全枚举 StateSpace**，

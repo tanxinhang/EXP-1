@@ -171,6 +171,190 @@ def run():
     Hp = m_p.sample_hypotheses(200000, np.random.default_rng(0))
     check("prior respected", abs(Hp.mean() - 0.7) < 0.01, f"empirical={Hp.mean():.3f}")
 
+    # ------------------------------------------------------------- T15-T20
+    print("\nT15-T20 CR-RBL invariants (B0.3a/B0.3b, advice/007.md §11)")
+    from opmvs.rbl_cr import CRRBL, SNRDirectBase, LatentWorld, exact_qa_pi_b
+    from opmvs.sparse import z_code_b
+    GAMMA_A = [-1.0, 1.0, 3.0, 5.0]
+    bhA = 16.0
+    baseA = SNRDirectBase(quants, GAMMA_A, bhA, eta_b=2.0, levels=(1, 2, 4))
+    crA = CRRBL(quants, 256.0, 256.0 * np.exp(1.0), bhA, baseA,
+                levels=(1, 2, 4), delta_c=1.0, seed=5)
+
+    # T15: nested projection M^(r) = proj_r(M^(8)) holds on ONE world, all levels
+    ok15 = True
+    rng15 = np.random.default_rng(15)
+    for trial in range(40):
+        z = [0] * 4
+        for u in range(int(rng15.integers(0, 3))):
+            i = int(rng15.integers(0, 4))
+            r = (1, 2, 4)[int(rng15.integers(0, 3))]
+            z[i] = z_code_b(r, int(rng15.integers(0, 2 ** r)))
+        x = sum(int(z[i]) * (sp.BASE_B ** i) for i in range(4))
+        w = LatentWorld(crA, x)
+        for i in range(4):
+            r_i, m_i = sp.z_decode_b(crA._z_digit(x, i))
+            if r_i > 0:
+                ok15 &= (m_i == w.msg(i, r_i))       # current cell == projection
+        x2, om2 = x, crA.pl.omega(x)
+        for _ in range(8):
+            a = crA.base.act(crA.pl, x2, om2)
+            if a is None:
+                break
+            i, r2 = a
+            r_old, m_old = sp.z_decode_b(crA._z_digit(x2, i))
+            x2, om2 = crA._apply(x2, om2, i, r2, w.cells)
+            r_new, m_new = sp.z_decode_b(crA._z_digit(x2, i))
+            ok15 &= (r_new == r2)
+            ok15 &= (m_new == w.msg(i, r2))           # revealed == projection
+            ok15 &= (r_old == 0 or m_old == w.msg(i, r_old))  # level-0 sentinel
+    check("T15 nested projection on one world", ok15)
+
+    # T16: E[G_a(W)] == Q_a^{pi_b} within MC CI (N=4 exact oracle)
+    Q_ex16 = exact_qa_pi_b(crA, 0, 40)
+    acts16 = [(3, 4), (2, 4), (0, 4)]
+    crA.rng = np.random.default_rng(16)
+    n16 = 2000
+    mean16, se16 = {}, {}
+    for a in acts16:
+        gs = np.empty(n16)
+        for m in range(n16):
+            w = LatentWorld(crA, 0)
+            gs[m] = crA._rollout(0, 40, a, w)
+        mean16[a] = gs.mean()
+        se16[a] = gs.std(ddof=1) / np.sqrt(n16)
+    ok16 = all(abs(mean16[a] - Q_ex16[a]) <= 4.0 * se16[a] for a in acts16)
+    check("T16 E[G_a(W)] = Q_a^pi_b in CI", ok16,
+          " | ".join(f"{a}: MC={mean16[a]:.1f}±{4*se16[a]:.1f} "
+                     f"exact={Q_ex16[a]:.1f}" for a in acts16))
+
+    # T17: certified => exact eps-ordering vs A U {STOP} (P0-B); deterministic
+    # certificate-condition replay + loose statistical tail
+    cr17 = CRRBL(quants, 256.0, 256.0 * np.exp(1.0), bhA, baseA,
+                 levels=(1, 2, 4), delta_c=1.0, seed=17)
+    cr17._uavs = [int(np.argmax(GAMMA_A))]
+    rng17 = np.random.default_rng(17)
+    eps17, delta17, w17 = 40.0, 0.05, 1500
+    n_cert17, n_viol17 = 0, 0
+    replay_ok = True
+    for trial in range(25):
+        z = [0] * 4
+        for u in range(int(rng17.integers(0, 2))):
+            i = int(rng17.integers(0, 3))
+            r = (1, 2, 4)[int(rng17.integers(0, 3))]
+            z[i] = z_code_b(r, int(rng17.integers(0, 2 ** r)))
+        z[3] = z_code_b(1, int(rng17.integers(0, 2)))
+        x = sum(int(z[i]) * (sp.BASE_B ** i) for i in range(4))
+        cr17.rng = np.random.default_rng(17000 + trial)
+        a_cr, info = cr17.plan(x, 40, eps=eps17, delta=delta17, max_samples=w17)
+        if not info["certified"]:
+            continue
+        n_cert17 += 1
+        u_b, m_c, e_c = info["cert_cond"]          # deterministic replay
+        replay_ok &= (u_b <= m_c + e_c + 1e-9)
+        Q_ex17 = exact_qa_pi_b(cr17, x, 40)
+        R0_17 = cr17.pl.r_stop(x)                  # P0-D: exact STOP
+        best17 = min(list(Q_ex17.values()) + [R0_17])
+        q_a17 = Q_ex17.get(a_cr, R0_17) if a_cr is not None else R0_17
+        if q_a17 > best17 + eps17:
+            n_viol17 += 1
+    check("T17 certificate condition replay", replay_ok)
+    check("T17 certified => exact eps-ordering (loose tail)",
+          n_viol17 <= max(2, int(0.25 * max(n_cert17, 1))),
+          f"certified={n_cert17} viol={n_viol17} (eps={eps17:.0f}, delta={delta17})")
+
+    # T18: episode communication cost <= H PATHWISE (P0-E hard budget)
+    n18 = 15
+    rng18 = np.random.default_rng(18)
+    Ht18 = model8.sample_hypotheses(n18, rng18)
+    L18 = model8.sample_llr(Ht18, rng18)
+    GAMMA_B = [-4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0]
+    base8t = SNRDirectBase(quants8, GAMMA_B, 16.0, eta_b=2.0, levels=(1, 2, 4, 8))
+    top4 = [7, 6, 5, 4]
+    max_costs = []
+    for H in (48.0, 96.0):
+        x_int = [0] * n18
+        zcode = np.zeros((n18, 8), dtype=np.int64)
+        lam = np.zeros(n18)
+        cost = np.zeros(n18)
+        h_rem = np.full(n18, H)
+        done = np.zeros(n18, dtype=bool)
+        for _ in range(64):
+            active = np.flatnonzero(~done)
+            if len(active) == 0:
+                break
+            for e in active:
+                if h_rem[e] < 1e-9:
+                    done[e] = True
+                    continue
+                cr8t = CRRBL(quants8, 256.0, 256.0 * np.exp(1.0), 16.0, base8t,
+                             levels=(1, 2, 4, 8), delta_c=1.0,
+                             seed=31 + e % 7, top_k_uavs=top4)
+                a, _i = cr8t.plan(x_int[e], h_rem[e], eps=4.0, delta=0.05,
+                                  max_samples=30)
+                if a is None:
+                    done[e] = True
+                    continue
+                i, r2 = a
+                zi = int(zcode[e, i])
+                r_cur, _ = sp.z_decode_b(zi)
+                c = 16.0 + (r2 - r_cur)
+                if c > h_rem[e] + 1e-9:
+                    done[e] = True
+                    continue
+                m2 = int(quants8[i].cell_index(r2, L18[e, i]))
+                z2 = z_code_b(r2, m2)
+                lam[e] += quants8[i].llr[r2][m2]
+                if r_cur > 0:
+                    lam[e] -= quants8[i].llr[r_cur][sp.z_decode_b(zi)[1]]
+                cost[e] += c
+                h_rem[e] -= c
+                x_int[e] += (z2 - zi) * (sp.BASE_B ** i)
+                zcode[e, i] = z2
+        max_costs.append(float(cost.max()))
+    ok18 = all(mc <= H + 1e-9 for mc, H in zip(max_costs, (48.0, 96.0)))
+    check("T18 episode cost <= H pathwise", ok18, f"max={max_costs}")
+
+    # T19: anytime coverage: Pr[forall n<=n_max, Q in [L_n,U_n]] >= 1 - delta/|A|
+    Q_true19 = Q_ex16[(3, 4)]
+    n_runs19, n_max19, delta19, nA19 = 100, 80, 0.1, 2
+    cov19 = 0
+    for r in range(n_runs19):
+        crA.rng = np.random.default_rng(19000 + r)
+        Bx = crA.bound(0)
+        qhat = 0.0
+        ok_all = True
+        for n in range(1, n_max19 + 1):
+            w = LatentWorld(crA, 0)
+            g = crA._rollout(0, 40, (3, 4), w)
+            qhat += (g - qhat) / n
+            dn = 6.0 * delta19 / (np.pi * np.pi * nA19 * n * n)
+            rad = Bx * np.sqrt(np.log(2.0 / dn) / (2.0 * n))
+            ok_all &= (abs(qhat - Q_true19) <= rad)
+        cov19 += int(ok_all)
+    thresh19 = 1.0 - delta19 / nA19
+    check("T19 anytime coverage (all n <= n_max)",
+          cov19 / n_runs19 >= thresh19 - 0.05,
+          f"cov={cov19}/{n_runs19} (lower bound {thresh19:.3f})")
+
+    # T20: paired CRN — same world, estimator identity + variance reduction
+    a20a, a20b = (3, 4), (2, 4)
+    crA.rng = np.random.default_rng(20)
+    n20 = 2000
+    G20a = np.empty(n20)
+    G20b = np.empty(n20)
+    for m in range(n20):
+        w = LatentWorld(crA, 0)
+        rr = crA.rollout_returns(0, 40, [a20a, a20b], world=w)
+        G20a[m] = rr[a20a]
+        G20b[m] = rr[a20b]
+    ident20 = abs((G20a - G20b).mean() - (G20a.mean() - G20b.mean())) < 1e-9
+    var_d = float((G20a - G20b).var(ddof=1))
+    var_s = float(G20a.var(ddof=1) + G20b.var(ddof=1))
+    check("T20 paired-CRN estimator identity", ident20)
+    check("T20 paired CRN reduces difference variance", var_d < 0.95 * var_s,
+          f"Var(Ga-Gb)/[Var(Ga)+Var(Gb)] = {var_d/var_s:.3f}")
+
     print(f"\n=== {len(PASS)} passed, {len(FAIL)} failed ({time.time()-t0:.0f}s) ===")
     for name, d in FAIL:
         print(f"  FAILED: {name} {d}")

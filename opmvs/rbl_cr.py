@@ -1,29 +1,41 @@
-"""CR-RBL: Confidence-Certified Rollout Resource-Bounded Lookahead
-(advice/006.md §9-§15).
+"""CR-RBL: Confidence-Certified Rollout Resource-Bounded Lookahead.
 
-For a state x with budget h, each feasible action a in A_h(x) is evaluated by
-Monte-Carlo rollout with a fixed base policy pi_b:
+B0.3a (advice/007.md §1-§7, §10-§12): credibility patch on top of the B0.3
+first version.  Four P0 repairs:
 
-    Q_a^{pi_b}(x) = E[ G_a ],   G_a = c_a + future reporting cost + R_stop(X_T).
+  P0-A  true cross-action CRN: one latent world
+            W_m = ( M_1^(8), ..., M_N^(8) ) | x
+        is sampled per Monte-Carlo iteration and EVERY candidate action is
+        evaluated on the SAME world (paired returns G_a(W_m), a in A).  The
+        old implementation re-sampled a latent per rollout_return call, so
+        W_a^(m) != W_b^(m) and the claimed "nested-evidence CRN" never
+        actually coupled the actions (007.md §1).
 
-Rollout return is strictly bounded (006.md §10):
+  P0-B  the certificate's competitor set is A^+(x) = A(x) ∪ {STOP}, where
+        STOP has the EXACT value R_stop(x) = min{ C01 p, C10 (1-p) }:
+            reporting a_hat certified iff   U_a_hat <= min{ R_stop,
+                                                    min_{b != a_hat} L_b } + eps,
+            STOP         certified iff   R_stop <= min_b L_b + eps.
+        (007.md §2.)
 
-    0 <= G <= B(x) = C_max^rem(x) + R_max,
-    C_max^rem(x) = sum_i [ k_i(x) * b_setup + (r_max - r_i) ],
-    R_max = C01 * C10 / (C01 + C10).
+  P0-C/D  exact-oracle helpers: exact_qa_pi_b gives Q_a^{pi_b} =
+        c_a + E[J^{pi_b}(x')]  (the value the rollouts actually estimate),
+        and base_policy_value gives J^{pi_b} — used by the G0/G1/G3 gates
+        instead of the Q_a^star / base-policy-value-as-STOP mis-calibration
+        of the first version (007.md §3).
 
-Certification: anytime Hoeffding radius with delta-spending (006.md §11):
-    delta_{a,n} = 6 delta / (pi^2 |A| n^2),   r_{a,n} = B(x) sqrt(log(2/d_{a,n})/2n).
-LUCB-style challenger sampling (006.md §14).  Action certificate (§13):
+  P0-E  hard-budget semantics: plan(x, h) treats h as the REMAINING
+        communication budget; the receding loop must pass h_t = H - C_t and
+        guarantee C_T <= H pathwise (007.md §4; enforced by the conservative
+        lattice q_a = ceil(c_a / delta_c) <= floor(h / delta_c)).
 
-    U_hat_a <= min_{b != hat_a} L_b + eps  =>  P( Q_hat_a <= min_a Q_a + eps ) >= 1 - delta.
+B0.3b (007.md §11): the module exposes the primitives needed by regression
+invariants T15-T20 (LatentWorld nested projection, paired rollout_returns,
+anytime delta-spending, certificate condition with STOP).
 
-Nested-evidence CRN (006.md §15): a latent level-8 cell M_i^(8) is sampled
-once per UAV per rollout; every message M_i^(r) = M_i^(8) >> (8 - r), so all
-candidate actions share the same latent realization (paired returns).
-
-First-version certificate is relative to the base policy pi_b (NOT V*):
-    P( Q_hat_a^{pi_b} <= min_a Q_a^{pi_b} + eps ) >= 1 - delta.
+The certificate remains relative to the base policy pi_b:
+    P( Q_hat_a^{pi_b} <= min_{a in A^+(x)} Q_a^{pi_b} + eps ) >= 1 - delta,
+NOT relative to V* (CR-RBL+ / Bellman sandwich is a later stage, 007.md §8-§9).
 """
 from __future__ import annotations
 
@@ -31,6 +43,7 @@ import math
 
 import numpy as np
 
+from .fusion import log_sigmoid, log_one_minus_sigmoid
 from .sparse import BASE_B, SparsePlanner, z_code_b, z_decode_b
 
 
@@ -66,8 +79,41 @@ class SNRDirectBase:
         return None
 
 
+class LatentWorld:
+    """One latent evidence realization W = ( H_m, M_1^(8), ..., M_N^(8) ) | x.
+
+    The latent HYPOTHESIS H_m is sampled first from the posterior at x, then
+    every UAV's level-8 cell is sampled from its H-conditional law given its
+    current cell (UAVs are conditionally independent given H).  This reproduces
+    the TRUE joint law p(W|x) — the UAVs are correlated through H, so drawing
+    each cell from its marginal would break the joint coupling (007.md §1
+    writes W_m := ( H_m, M_{1,m}^{(8)}, ..., M_{N,m}^{(8)} ) | x).
+
+    Every message M_i^(r) = proj_r( M_i^(8) ) = cells[i] >> (r_max - r) is a
+    deterministic projection, so all candidate actions evaluated on this world
+    share the same latent evidence (true paired CRN).
+    """
+
+    __slots__ = ("cr", "x_int", "om", "h", "cells")
+
+    def __init__(self, cr, x_int):
+        self.cr = cr
+        self.x_int = int(x_int)
+        self.om = cr.pl.omega(self.x_int)
+        p = 1.0 / (1.0 + np.exp(-self.om))
+        self.h = int(cr.rng.random() < p)          # latent hypothesis
+        self.cells = {}
+        for i in range(cr.N):
+            self.cells[i] = cr._sample_latent_h(i, cr._z_digit(self.x_int, i),
+                                                self.h)
+
+    def msg(self, i, r2):
+        """Level-r2 message of UAV i in this world (nested projection)."""
+        return self.cells[i] >> (self.cr.r_max - r2)
+
+
 class CRRBL:
-    """Confidence-certified rollout RBL."""
+    """Confidence-certified rollout RBL (B0.3a paired-CRN version)."""
 
     def __init__(self, quants, mu_M, mu_F, b_h, base, pi=(0.5, 0.5),
                  delta_c=1.0, levels=(1, 2, 4, 8), seed=0, top_k_uavs=None):
@@ -110,9 +156,9 @@ class CRRBL:
         return int(x_int // self.powers[i]) % BASE_B
 
     def _sample_latent(self, i, zi, om):
-        """Sample the latent level-8 CELL INDEX for UAV i consistent with its
-        current cell, under the Bayesian predictive at posterior odds om.
-        Returns a cell index in 0..(2^r_max - 1).  Vectorized."""
+        """Sample the latent level-8 CELL INDEX for UAV i from its MARGINAL
+        given the current cell and posterior odds om (per-UAV law; kept for
+        reference).  The paired world uses _sample_latent_h (H-conditional)."""
         q = self.quants[i]
         r, m = z_decode_b(zi)
         if r >= self.r_max:
@@ -130,6 +176,21 @@ class CRRBL:
         w /= w.sum()
         return int(self.rng.choice(desc, p=w))
 
+    def _sample_latent_h(self, i, zi, h):
+        """Sample the latent level-8 cell of UAV i from p( . | H=h, current
+        cell ).  UAVs drawn with a common H are jointly consistent (the true
+        law p(W|x) = sum_h p(h|x) prod_i p(W_i | h, x))."""
+        q = self.quants[i]
+        r, m = z_decode_b(zi)
+        if r >= self.r_max:
+            return int(m)                           # already at finest level
+        desc = q.desc_cells(r, m, self.r_max)
+        lpr = (0.0 if r == 0 else q.logP1[r][m]) if h else (0.0 if r == 0 else q.logP0[r][m])
+        lp = (q.logP1[self.r_max][desc] - lpr) if h else (q.logP0[self.r_max][desc] - lpr)
+        w = np.exp(lp - lp.max())
+        w /= w.sum()
+        return int(self.rng.choice(desc, p=w))
+
     def _apply(self, x_int, om, i, r2, latents):
         z = latents[i]                                     # latent level-8 cell
         m2 = z >> (self.r_max - r2)                        # nested projection
@@ -139,40 +200,52 @@ class CRRBL:
         om2 = om + self.pl._llr_i[i][z2] - self.pl._llr_i[i][zi]
         return x2, om2
 
-    def rollout_return(self, x_int, h, action):
-        """One rollout: take `action` (or STOP), then follow pi_b under the
-        remaining budget h.  Returns G = radio cost + R_stop(X_T)."""
-        latents = {}
+    # -------------------------------------------------------- paired rollouts
+    def _rollout(self, x_int, h, action, world):
+        """One rollout on a GIVEN world: take `action` (or None = skip), then
+        follow pi_b under the remaining budget h.  Returns G = radio cost +
+        R_stop(X_T).  All latents come from `world` (paired CRN)."""
+        latents = world.cells
         om = self.pl.omega(x_int)
         h_rem = float(h)
         cost = 0.0
+        x2, om2 = x_int, om
         if action is not None:
             i, r2 = action
-            if i not in latents:
-                latents[i] = self._sample_latent(i, self._z_digit(x_int, i), om)
             r_old, _ = z_decode_b(self._z_digit(x_int, i))
             c = self.b_h + (r2 - r_old)
-            x_int, om = self._apply(x_int, om, i, r2, latents)
+            x2, om2 = self._apply(x_int, om, i, r2, latents)
             cost += c
             h_rem -= c
         # follow the base policy (respecting the remaining budget)
         for _ in range(4 * self.N + 2):
-            a = self.base.act(self.pl, x_int, om)
+            a = self.base.act(self.pl, x2, om2)
             if a is None:
                 break
             i, r2 = a
-            r_old, _ = z_decode_b(self._z_digit(x_int, i))
+            r_old, _ = z_decode_b(self._z_digit(x2, i))
             c = self.b_h + (r2 - r_old)
             if c > h_rem:
                 break                                   # budget exhausted
-            if i not in latents:
-                latents[i] = self._sample_latent(i, self._z_digit(x_int, i), om)
-            x_int, om = self._apply(x_int, om, i, r2, latents)
+            x2, om2 = self._apply(x2, om2, i, r2, latents)
             cost += c
             h_rem -= c
-        p = 1.0 / (1.0 + np.exp(-om))
+        p = 1.0 / (1.0 + np.exp(-om2))
         cost += min(self.C01 * p, self.C10 * (1.0 - p))
         return cost
+
+    def rollout_return(self, x_int, h, action):
+        """Single-action rollout on a freshly sampled world (kept for backward
+        compatibility; the paired path is rollout_returns/plan)."""
+        world = LatentWorld(self, x_int)
+        return self._rollout(x_int, h, action, world)
+
+    def rollout_returns(self, x_int, h, actions, world=None):
+        """Evaluate ALL `actions` on ONE shared latent world (true paired CRN).
+        Returns {action: G_a(W)}."""
+        if world is None:
+            world = LatentWorld(self, x_int)
+        return {a: self._rollout(x_int, h, a, world) for a in actions}
 
     # ------------------------------------------------------------ planner
     def feasible_actions(self, x_int, h):
@@ -189,60 +262,158 @@ class CRRBL:
                     acts.append((i, r2))
         return acts
 
-    def _delta_n(self, a, n):
-        nA = len(self._actions)
+    def _delta_n(self, n):
+        """Anytime delta spending per action (sum_n = delta / |A|)."""
+        nA = max(1, len(self._actions))
         return 6.0 * self._delta / (math.pi * math.pi * nA * n * n)
 
     def plan(self, x_int, h, eps, delta, max_samples=4000):
-        """CR-RBL planning at (x, h): returns (action|None, info) with the
-        anytime Hoeffding certificate (relative to the base policy)."""
+        """CR-RBL planning at (x, h) with the B0.3a paired-CRN loop.
+
+        Semantics:
+          * h is the REMAINING communication budget (hard budget; the planner
+            only ever returns actions whose true cost fits: q_a <= floor(h/dc)).
+          * One latent world W_m is sampled per iteration; every feasible
+            action is evaluated on W_m (full paired CRN), so after n worlds
+            every action has n samples:  Qhat_a = (1/n) sum_m G_a(W_m).
+          * Anytime Hoeffding radius with delta-spending
+                delta_{a,n} = 6 delta / (pi^2 |A| n^2),   r_{a,n} = B(x) ...
+            and the certificate's competitor set includes STOP (exact value
+            R_stop(x), zero width).
+
+        Returns (action | None, info):
+          action None == STOP.  info["certified"] True only when the
+          certificate fired:
+            reporting a_hat:  U_a_hat <= min{ R_stop, min_{b != a_hat} L_b } + eps
+            STOP:             R_stop    <= min_b L_b + eps
+          If max_samples worlds are exhausted without certification, the
+          empirical best of {STOP} ∪ A is returned with certified=False.
+        """
         actions = self.feasible_actions(x_int, h)
         self._actions = actions
         self._delta = delta
         Bx = self.bound(x_int)
         R0 = self.pl.r_stop(x_int)                 # STOP pseudo-action (exact)
         if not actions:
-            return None, {"certified": True, "samples": 0, "q_best": R0, "q_stop": R0}
-        qhat = {}
-        cnt = {}
-        width = {}
+            return None, {"certified": True, "samples": 0, "n_worlds": 0,
+                          "n_rollouts": 0, "q_best": R0, "q_stop": R0,
+                          "width_best": 0.0, "best": None}
+        nA = len(actions)
+        qhat = {a: 0.0 for a in actions}
+        L = {a: 0.0 for a in actions}
+        U = {a: 0.0 for a in actions}
 
-        def L(a):
-            return qhat[a] - width[a]
+        def best_sel():
+            """Empirical best over {STOP} ∪ A: returns (best, q_best)."""
+            qmin = min([R0] + [qhat[a] for a in actions])
+            if qmin == R0:
+                return None, R0
+            cands = sorted((a for a in actions if qhat[a] == qmin))
+            return cands[0], qmin
 
-        def U(a):
-            return qhat[a] + width[a]
-
-        # initial sample for every action
-        for a in actions:
-            cnt[a] = 1
-            qhat[a] = self.rollout_return(x_int, h, a)
-            width[a] = Bx * math.sqrt(math.log(2.0 / self._delta_n(a, 1)) / 2.0)
-
+        n_worlds = 0
+        n_rollouts = 0
         for _ in range(max_samples):
-            best = min(actions, key=lambda a: qhat[a])
-            if len(actions) > 1:
-                chall = min((a for a in actions if a != best), key=L)
-                a_s = best if width[best] >= width[chall] else chall
+            world = LatentWorld(self, x_int)       # P0-A: one world -> all A
+            n_worlds += 1
+            n = n_worlds
+            rad = Bx * math.sqrt(math.log(2.0 / self._delta_n(n)) / (2.0 * n))
+            for a in actions:
+                g = self._rollout(x_int, h, a, world)
+                n_rollouts += 1
+                qhat[a] = qhat[a] + (g - qhat[a]) / n
+                L[a] = qhat[a] - rad
+                U[a] = qhat[a] + rad
+            best, q_best = best_sel()
+            if best is None:                       # P0-B: STOP certificate
+                min_comp = min([L[a] for a in actions])
+                if R0 <= min_comp + eps:
+                    return None, {"certified": True, "samples": n,
+                                  "n_worlds": n, "n_rollouts": n_rollouts,
+                                  "q_best": R0, "q_stop": R0, "width_best": 0.0,
+                                  "best": None,
+                                  "cert_cond": (R0, min_comp, eps)}
             else:
-                a_s = best
-            cnt[a_s] += 1
-            g = self.rollout_return(x_int, h, a_s)
-            qhat[a_s] = qhat[a_s] + (g - qhat[a_s]) / cnt[a_s]
-            width[a_s] = Bx * math.sqrt(math.log(2.0 / self._delta_n(a_s, cnt[a_s]))
-                                        / (2.0 * cnt[a_s]))
-            # certificate: best action vs all others (+ the STOP option)
-            if U(best) <= min([L(b) for b in actions if b != best], default=-np.inf) + eps:
-                if R0 <= min([L(b) for b in actions], default=np.inf):
-                    return None, {"certified": True, "samples": sum(cnt.values()),
-                                  "q_best": R0, "q_stop": R0}
-                return best, {"certified": True, "samples": sum(cnt.values()),
-                              "q_best": qhat[best], "q_stop": R0,
-                              "width_best": width[best]}
-        # budget exhausted without certification: pick the empirical best
-        best = min(actions, key=lambda a: qhat[a])
-        if R0 <= qhat[best] - width[best]:
-            return None, {"certified": False, "samples": sum(cnt.values()),
-                          "q_best": R0, "q_stop": R0}
-        return best, {"certified": False, "samples": sum(cnt.values()),
-                      "q_best": qhat[best], "q_stop": R0, "width_best": width[best]}
+                min_comp = min([R0] + [L[a] for a in actions if a != best])
+                if U[best] <= min_comp + eps:
+                    return best, {"certified": True, "samples": n,
+                                  "n_worlds": n, "n_rollouts": n_rollouts,
+                                  "q_best": q_best, "q_stop": R0,
+                                  "width_best": U[best] - q_best, "best": best,
+                                  "cert_cond": (U[best], min_comp, eps)}
+        # budget exhausted without certification: empirical best (uncertified)
+        best, q_best = best_sel()
+        return best, {"certified": False, "samples": n_worlds, "n_worlds": n_worlds,
+                      "n_rollouts": n_rollouts, "q_best": q_best, "q_stop": R0,
+                      "width_best": 0.0, "best": best}
+
+
+# ------------------------------------------------------ exact-oracle helpers
+def base_policy_value(crr, x_int, h, memo=None):
+    """Exact cost-to-go J^{pi_b}(x, h) of the rollout base policy, memoized
+    (budget-aware: if the base action exceeds the remaining budget, pay
+    R_stop(x)).  This is the continuation value used by exact_qa_pi_b."""
+    if memo is None:
+        memo = {}
+    key = (int(x_int), int(np.floor(h / crr.delta_c)))
+    if key in memo:
+        return memo[key]
+    om = crr.pl.omega(x_int)
+    a = crr.base.act(crr.pl, x_int, om)
+    if a is None:
+        p = 1.0 / (1.0 + np.exp(-om))
+        val = min(crr.C01 * p, crr.C10 * (1.0 - p))
+    else:
+        i, r2 = a
+        r_old, _ = z_decode_b(crr._z_digit(x_int, i))
+        c = crr.b_h + (r2 - r_old)
+        if c > h:
+            p = 1.0 / (1.0 + np.exp(-om))
+            val = min(crr.C01 * p, crr.C10 * (1.0 - p))
+        else:
+            zi = crr._z_digit(x_int, i)
+            cells = next(cells for (r2b, _ct, _qb, cells) in crr.pl._tpl[i][zi]
+                         if r2b == r2)
+            lp = float(log_sigmoid(om))
+            lq = float(log_one_minus_sigmoid(om))
+            E = 0.0
+            for (m2, lp0c, lp1c) in cells:
+                z2 = z_code_b(r2, m2)
+                cx = x_int + (z2 - zi) * crr.powers[i]
+                om_c = om + crr.pl._llr_i[i][z2] - crr.pl._llr_i[i][zi]
+                a_ = lp + lp1c
+                b_ = lq + lp0c
+                m_ = a_ if a_ >= b_ else b_
+                w = float(np.exp(m_ + np.log1p(np.exp(-abs(a_ - b_)))))
+                E += w * base_policy_value(crr, cx, h - c, memo)
+            val = c + E
+    memo[key] = val
+    return val
+
+
+def exact_qa_pi_b(crr, x_int, h):
+    """Exact Q_a^{pi_b}(x, h) = c_a + E[J^{pi_b}(x', h - c_a)] for every
+    feasible reporting action.  STOP's exact value is crr.pl.r_stop(x)
+    (caller adds it); this is the oracle the MC rollouts estimate."""
+    om = crr.pl.omega(x_int)
+    Qs = {}
+    for (i, r2) in crr.feasible_actions(x_int, h):
+        r_old, _ = z_decode_b(crr._z_digit(x_int, i))
+        c = crr.b_h + (r2 - r_old)
+        zi = crr._z_digit(x_int, i)
+        cells = next(cells for (r2b, _ct, _qb, cells) in crr.pl._tpl[i][zi]
+                     if r2b == r2)
+        lp = float(log_sigmoid(om))
+        lq = float(log_one_minus_sigmoid(om))
+        E = 0.0
+        for (m2, lp0c, lp1c) in cells:
+            z2 = z_code_b(r2, m2)
+            cx = x_int + (z2 - zi) * crr.powers[i]
+            om_c = om + crr.pl._llr_i[i][z2] - crr.pl._llr_i[i][zi]
+            a_ = lp + lp1c
+            b_ = lq + lp0c
+            m_ = a_ if a_ >= b_ else b_
+            w = float(np.exp(m_ + np.log1p(np.exp(-abs(a_ - b_)))))
+            E += w * base_policy_value(crr, cx, h - c)
+        Qs[(i, r2)] = c + E
+    return Qs
