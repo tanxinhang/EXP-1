@@ -4,11 +4,15 @@ B0.3a (advice/007.md §1-§7, §10-§12): credibility patch on top of the B0.3
 first version.  Four P0 repairs:
 
   P0-A  true cross-action CRN: one latent world
-            W_m = ( M_1^(8), ..., M_N^(8) ) | x
+            W_m = ( H_m, M_1^(8), ..., M_N^(8) ) | x
         is sampled per Monte-Carlo iteration and EVERY candidate action is
         evaluated on the SAME world (paired returns G_a(W_m), a in A).  The
-        old implementation re-sampled a latent per rollout_return call, so
-        W_a^(m) != W_b^(m) and the claimed "nested-evidence CRN" never
+        world includes the latent hypothesis H_m: sample H from the posterior
+        at x, then draw each UAV's level-8 cell H-conditionally — the old
+        per-UAV marginal product breaks the H-induced cross-UAV correlation
+        and biases rollouts (verified ~ +12 bits on the N=4 exact oracle).
+        The old implementation re-sampled a latent per rollout_return call,
+        so W_a^(m) != W_b^(m) and the claimed "nested-evidence CRN" never
         actually coupled the actions (007.md §1).
 
   P0-B  the certificate's competitor set is A^+(x) = A(x) ∪ {STOP}, where
@@ -33,9 +37,17 @@ B0.3b (007.md §11): the module exposes the primitives needed by regression
 invariants T15-T20 (LatentWorld nested projection, paired rollout_returns,
 anytime delta-spending, certificate condition with STOP).
 
+B0.3c (advice/008.md §3-§4): the Hoeffding diameter is now ACTION-SPECIFIC and
+budget-aware,  D_a(x,h) = min{ c_max_rem(x), h } + R_max - c_a  (tight range
+0 <= G_a - c_a <= min{ c_max_rem(x), h - c_a } + R_max), instead of the loose
+B(x) = c_max_rem(x) + R_max — this is pure baseline fairness (the certificate
+gets tighter without any new statistics).  MarginalWorld is kept as the B0.3-era
+marginal-product world for the bias-vs-variance ablation (008.md §3).
+
 The certificate remains relative to the base policy pi_b:
     P( Q_hat_a^{pi_b} <= min_{a in A^+(x)} Q_a^{pi_b} + eps ) >= 1 - delta,
-NOT relative to V* (CR-RBL+ / Bellman sandwich is a later stage, 007.md §8-§9).
+NOT relative to V* (CR-RBL+ / Bellman sandwich is a later stage, 007.md §8-§9;
+per 008.md §13, Bellman sandwich moves AFTER the B0.6 matched-QoS gate).
 """
 from __future__ import annotations
 
@@ -112,8 +124,33 @@ class LatentWorld:
         return self.cells[i] >> (self.cr.r_max - r2)
 
 
+class MarginalWorld:
+    """B0.3-era (pre-B0.3a) world: each UAV's level-8 cell drawn independently
+    from its per-UAV MARGINAL given x (the product law prod_i P(M_i^(8)|x)).
+
+    This is NOT a valid joint law (UAVs are correlated through H), so rollouts
+    on it are biased — it is kept ONLY as the ablation cell "marginal-product x
+    independent" of advice/008.md §3 (separating bias correction from paired
+    variance reduction)."""
+
+    __slots__ = ("cr", "x_int", "om", "cells")
+
+    def __init__(self, cr, x_int):
+        self.cr = cr
+        self.x_int = int(x_int)
+        self.om = cr.pl.omega(self.x_int)
+        self.cells = {}
+        for i in range(cr.N):
+            self.cells[i] = cr._sample_latent(i, cr._z_digit(self.x_int, i),
+                                              self.om)
+
+    def msg(self, i, r2):
+        """Level-r2 message of UAV i in this world (nested projection)."""
+        return self.cells[i] >> (self.cr.r_max - r2)
+
+
 class CRRBL:
-    """Confidence-certified rollout RBL (B0.3a paired-CRN version)."""
+    """Confidence-certified rollout RBL (B0.3c: budget-aware Hoeffding range)."""
 
     def __init__(self, quants, mu_M, mu_F, b_h, base, pi=(0.5, 0.5),
                  delta_c=1.0, levels=(1, 2, 4, 8), seed=0, top_k_uavs=None):
@@ -149,7 +186,21 @@ class CRRBL:
         return total
 
     def bound(self, x_int):
+        """Loose (budget-free) Hoeffding diameter: G_a <= c_max_rem(x) + R_max
+        (kept for backward compatibility / reference)."""
         return self.c_max_rem(x_int) + self.R_max
+
+    def bound_a(self, x_int, h, c_a):
+        """Action-specific Hoeffding diameter under the HARD budget h (008 §4).
+
+        With C_T <= h pathwise, the rollout return satisfies
+            0 <= G_a - c_a <= min{ c_max_rem(x), h - c_a } + R_max
+        hence the tight deterministic diameter
+            D_a(x, h) = min{ c_max_rem(x), h } + R_max - c_a,
+        which for the root state is ~ (h + R_max - c_a) instead of the loose
+        (c_max_rem(x) + R_max - c_a) — e.g. H=48, N=8 root: ~422 vs ~950.
+        """
+        return min(self.c_max_rem(x_int), float(h)) + self.R_max - float(c_a)
 
     # ------------------------------------------------------------ sampling
     def _z_digit(self, x_int, i):
@@ -277,7 +328,10 @@ class CRRBL:
             action is evaluated on W_m (full paired CRN), so after n worlds
             every action has n samples:  Qhat_a = (1/n) sum_m G_a(W_m).
           * Anytime Hoeffding radius with delta-spending
-                delta_{a,n} = 6 delta / (pi^2 |A| n^2),   r_{a,n} = B(x) ...
+                delta_{a,n} = 6 delta / (pi^2 |A| n^2),
+                r_{a,n} = D_a(x,h) sqrt(log(2/delta_{a,n}) / (2n)),
+            where D_a(x,h) = min{c_max_rem(x), h} + R_max - c_a is the
+            action-specific diameter under the hard budget (B0.3c, 008 §4),
             and the certificate's competitor set includes STOP (exact value
             R_stop(x), zero width).
 
@@ -292,13 +346,21 @@ class CRRBL:
         actions = self.feasible_actions(x_int, h)
         self._actions = actions
         self._delta = delta
-        Bx = self.bound(x_int)
         R0 = self.pl.r_stop(x_int)                 # STOP pseudo-action (exact)
         if not actions:
             return None, {"certified": True, "samples": 0, "n_worlds": 0,
                           "n_rollouts": 0, "q_best": R0, "q_stop": R0,
                           "width_best": 0.0, "best": None}
         nA = len(actions)
+        # B0.3c (008 §4): action-specific Hoeffding diameter under the hard
+        # budget — D_a(x,h) = min{c_max_rem(x), h} + R_max - c_a (tighter than
+        # the loose B(x) = c_max_rem(x) + R_max used in B0.3a).
+        c_of = {}
+        for a in actions:
+            i, r2 = a
+            r_old, _ = z_decode_b(self._z_digit(x_int, i))
+            c_of[a] = self.b_h + (r2 - r_old)
+        dia = {a: self.bound_a(x_int, h, c_of[a]) for a in actions}
         qhat = {a: 0.0 for a in actions}
         L = {a: 0.0 for a in actions}
         U = {a: 0.0 for a in actions}
@@ -317,8 +379,8 @@ class CRRBL:
             world = LatentWorld(self, x_int)       # P0-A: one world -> all A
             n_worlds += 1
             n = n_worlds
-            rad = Bx * math.sqrt(math.log(2.0 / self._delta_n(n)) / (2.0 * n))
             for a in actions:
+                rad = dia[a] * math.sqrt(math.log(2.0 / self._delta_n(n)) / (2.0 * n))
                 g = self._rollout(x_int, h, a, world)
                 n_rollouts += 1
                 qhat[a] = qhat[a] + (g - qhat[a]) / n

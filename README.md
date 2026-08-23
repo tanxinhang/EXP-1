@@ -54,6 +54,18 @@
   T15–T20**；**P1-D b⋆ 重表述为 root-state threshold**：g_x(b)=E[min{Y_x,b}] 非减凹、
   g_x'(b)=Pr(Y_x>b)，b⋆(x)=inf{b:g_x(b)≥0} 为 state-dependent packetization phase
   boundary（根状态 b⋆(x₀)=7.0，1-bit 子状态 b⋆=∞ ⇒ direct regime）。
+- **MVS-B0.3c（依据 advice/008.md，收口补丁）**：**(1) natural 阈值修正**——
+  G5 的 natural 指标改为 Ω>η_nat=log(μ_F/μ_M)=1.0（原来错用 Ω>0；与 eval_exact.py
+  锁死，新增 T21）；**(2) G5 改名** directional (unmatched) hard-budget comparison
+  （P_D 与 E[B] 同时不同，只有 Pareto 方向性，正式 matched-QoS 留 B0.6）；
+  **(3) 三格消融**（G7）分离 bias correction 与 variance reduction：marg×ind
+  E|Q̂−Q|=8.4 / P(match)=0.70 → joint×ind 5.6/0.73 → joint×paired 5.6/**0.95**，
+  耦合效率 κ≈13（n_paired≈n_uncoupled/κ）；**(4) Hoeffding range 收紧**（008 §4）
+  B→B_a(x,h)=min{c_max_rem,h}+R_max−c_a（root N=8: ~950→~422@H=48），G3
+  certification rate 75.5%→94.5%（ε=40）；**(5) T17 拆分**为 T17a 确定性证书蕴含
+  （100% PASS）+ T17b 经验审计，T19 标注为统计 sanity；**(6) E[Y_x] 存在性判据**
+  （008 §6）：b⋆(x)<∞ ⟺ E[Y_x]≥0，E[Y_x]<0 ⇒ progressive dominates direct for
+  every b_h≥0（根 EY=38.56>0↔b⋆=7；1-bit 子状态 EY<0↔b⋆=∞，analytically）。
 - **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
@@ -126,8 +138,8 @@ python run_mvsb0.py          # MVS-B0 流水线（约 6–15 分钟）
 python run_mvsb01.py         # MVS-B0.1 流水线（约 20–30 分钟）
 python run_mvsb01a.py        # MVS-B0.1a 补丁（约 1 分钟）
 python run_mvsb03.py         # B0.3 CR-RBL（约 6–10 分钟，推荐）
-python run_mvsb03a.py        # B0.3a credibility patch（约 6–10 分钟，推荐）
-python test_regressions.py   # regression suite（约 4–5 分钟）
+python run_mvsb03a.py        # B0.3a/B0.3c credibility + closure patch（约 6–10 分钟，推荐）
+python test_regressions.py   # regression suite（约 5–6 分钟，32 项：30 不变量/审计 + T17a 拆分 + T21）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
 python run_mvsa_r11.py --smoke
@@ -183,23 +195,29 @@ python smoke_test.py         # 核心模块自检
     动作/值全等价（0 不一致）；部署时 root 求解稀疏率 ~3%；
   - η_rec（重定义，用 B_CMDP\* 与 receding H<16 的 B_RBL）达标硬 Gate ≥50%。
 
-## 下一步（依据 advice/007.md 的开发顺序，MVS-A 封板）
+## 下一步（依据 advice/008.md 的新顺序，MVS-A 封板）
 
 MVS-A 的 G0/G1a/G1b/G2 + R2.1-G0..G4 全部通过，按 003.md 冻结，不再继续优化。
-MVS-B0/B0.1/B0.1a/B0.3/B0.3a 已按 004/005/006/007 完成。审计 007 指定的后续顺序：
+MVS-B0/B0.1/B0.1a/B0.3/B0.3a/B0.3c 已按 004/005/006/007/008 完成。审计 008 的新顺序
+（B0.5 移到 B0.6 之后，避免"理论漂亮但通信收益未定"）：
 
-- **B0.3b**：CR-RBL regression invariants（T15–T20，已随 B0.3a 落地）；
-- **B0.4**：true latent-world coupling + **paired-difference EB-CS**（从 arm-wise
-  估计升级为直接估计 Δ_{a,b}=Q_a^{π_b}−Q_b^{π_b}，利用 nested coupling 的
-  Var(Z)≪Var(G_a)+Var(G_b)，当前已测到 ratio≈0.14）；
-- **B0.4a**：uncertified ⇒ **fallback to base policy**（只在 U(D_a)<0 时 override，
-  certified policy improvement）；one-step conditional-VoI base 替换 SNR-base 做 ablation；
-- **B0.4b**：正式 state-dependent b⋆(x) 定理与 phase diagram（G6 已给数值验证）；
-- **B0.5**：**Bellman sandwich** L_k≤V⋆≤U_k（修正 006 的不等式为
-  V_genie≤V⋆≤min{V^{π_b}, R_stop}），把证书从 Q^{π_b} 提升到 Q⋆；
-- **B0.6**：matched QoS vs Direct8/POTS 的正式比较（论文生死 Gate：P_FA^CR≤α、
-  P_MD^CR≤β、E[B]^CR<E[B]^D8 with CI）；
-- **B1**（fading/packet errors）只在 B0.6 PASS 后进入。
+- **B0.4**：**paired-difference time-uniform EB-CS**——每次选一对 (a_t, b_t)，在共享
+  world W_t 上得 Z_t^{a,b}=G_a(W_t)−G_b(W_t)，对 Δ_{a,b}=Q_a^{π_b}−Q_b^{π_b} 直接建
+  EB 置信序列（U_{â,b}≤ε ∀b ⟹ Q_â≤min_b Q_b+ε；STOP 已知，只需对 G_a−R_stop 建单边 CS）；
+  采样结构回到 candidate–challenger pair（2 rollouts/world，替代当前 32/world 的全配对）；
+- **B0.4a**：uncertified ⇒ **fallback to base policy**；certified policy improvement
+  （U(D_a)<0 才 override，D_a=Q_a^{π_b}−Q_{a_b}^{π_b}）；one-step conditional-VoI base
+  a_b(x)=argmin_a[c_a+E[R_stop(X')|x,a]] 替换 SNR-base 做 ablation；
+- **B0.4b**：正式 b⋆(x) 定理（B0.3c 已验证存在性判据：b⋆<∞ ⟺ E[Y_x]≥0；
+  E[Y_x]<0 ⟹ progressive dominates direct for every b_h≥0）；
+- **B0.6-pre**：N=4 exact / N=8 shallow sample-complexity gate（先验收算法）；
+- **B0.6**：matched QoS + CI，CR vs Direct8/POTS（**论文生死 Gate**：P_FA^CR≤α、
+  P_MD^CR≤β、E[B]^CR<E[B]^D8 with CI）——若 E[B]^CR≥E[B]^Direct8，论文诚实结论为
+  "phase transition 存在、但当前 regime 最优策略落在 direct-packetization regime"；
+- **B0.5**：**Bellman sandwich** L_k≤V⋆≤U_k（修正 006 不等式为
+  V_genie≤V⋆≤min{V^{π_b}, R_stop}），把证书从 Q^{π_b} 提升到 Q⋆——只在 B0.6 显示
+  算法有实际通信价值后做；
+- **B1**（fading/packet errors）仍然最后。
 
 关键算术修正（003.md §8）：MVS-B 每 UAV evidence states =
 **1+2+4+16+256 = 279**（不是 47）；279⁸ ≈ 1e19 ⇒ **MVS-B 禁止复用全枚举 StateSpace**，

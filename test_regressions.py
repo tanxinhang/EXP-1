@@ -18,6 +18,18 @@ not a tuning issue.  The suite covers:
   T12 Adaptive Direct-8 action-set restriction
   T13 VoI theorem identity Q_prog-Q_dir = E[min{D-D2, b_h}]
   T14 hypothesis sampling respects the configured prior
+  T15 nested projection on one latent world (B0.3a)
+  T16 E[G_a(W)] = Q_a^{pi_b} within MC CI (B0.3a)
+  T17a deterministic certificate implication (B0.3c; 100% PASS)
+  T17b empirical certificate audit (B0.3c; stochastic sanity, G3 is the strong gate)
+  T18 episode cost <= H pathwise (B0.3a hard budget)
+  T19 anytime CI coverage (B0.3a; statistical sanity — NOT a deterministic invariant)
+  T20 paired-CRN estimator identity + variance reduction (B0.3a)
+  T21 natural decision threshold = log(mu_F/mu_M), locked to eval_exact (B0.3c)
+
+Deterministic invariants (T01-T15, T17a, T18, T20 identity part): a failure is a bug.
+Statistical audits (T16, T17b, T19, T20 variance part): assertions carry explicit
+MC tolerance; the strong statistical gates live in the pipelines (G0/G3).
 """
 import time
 import numpy as np
@@ -230,6 +242,26 @@ def run():
 
     # T17: certified => exact eps-ordering vs A U {STOP} (P0-B); deterministic
     # certificate-condition replay + loose statistical tail
+    # T17a (B0.3c, 008 §5): DETERMINISTIC certificate implication — given
+    # intervals [L_a, U_a] that cover the true Q_a for every a, the fired
+    # condition U_a_hat <= min_b L_b + eps must imply Q_a_hat <= min_b Q_b + eps.
+    # Pure logic: must PASS 100% of the time.
+    rng17a = np.random.default_rng(17)
+    ok17a = True
+    for trial in range(2000):
+        n_arms = int(rng17a.integers(2, 8))
+        Q = rng17a.uniform(0.0, 100.0, n_arms)
+        width = rng17a.uniform(0.0, 20.0, n_arms)
+        L = Q - width                      # L_a <= Q_a
+        U = Q + width                      # U_a >= Q_a
+        eps = rng17a.uniform(0.0, 30.0)
+        best = int(np.argmin(Q))
+        if U[best] <= np.min(np.delete(L, best)) + eps:
+            ok17a &= (Q[best] <= np.min(Q) + eps + 1e-12)
+    check("T17a deterministic certificate implication (100% PASS)", ok17a)
+
+    # T17b (B0.3c): empirical certificate audit (stochastic sanity; the strong
+    # statistical gate is pipeline G3: 465 certified / 0 viol / U95=0.0064).
     cr17 = CRRBL(quants, 256.0, 256.0 * np.exp(1.0), bhA, baseA,
                  levels=(1, 2, 4), delta_c=1.0, seed=17)
     cr17._uavs = [int(np.argmax(GAMMA_A))]
@@ -258,8 +290,8 @@ def run():
         q_a17 = Q_ex17.get(a_cr, R0_17) if a_cr is not None else R0_17
         if q_a17 > best17 + eps17:
             n_viol17 += 1
-    check("T17 certificate condition replay", replay_ok)
-    check("T17 certified => exact eps-ordering (loose tail)",
+    check("T17b certificate condition replay (deterministic part)", replay_ok)
+    check("T17b empirical certificate audit (loose tail)",
           n_viol17 <= max(2, int(0.25 * max(n_cert17, 1))),
           f"certified={n_cert17} viol={n_viol17} (eps={eps17:.0f}, delta={delta17})")
 
@@ -315,13 +347,15 @@ def run():
     ok18 = all(mc <= H + 1e-9 for mc, H in zip(max_costs, (48.0, 96.0)))
     check("T18 episode cost <= H pathwise", ok18, f"max={max_costs}")
 
-    # T19: anytime coverage: Pr[forall n<=n_max, Q in [L_n,U_n]] >= 1 - delta/|A|
+    # T19: anytime coverage (statistical sanity, 008 §5): Pr[forall n<=n_max,
+    # Q in [L_n,U_n]] >= 1 - delta/|A|; uses the B0.3c budget-aware diameter.
     Q_true19 = Q_ex16[(3, 4)]
     n_runs19, n_max19, delta19, nA19 = 100, 80, 0.1, 2
+    c_a19 = 16.0 + 4                            # action (3,4): b_h + (4-0)
+    Bx19 = crA.bound_a(0, 40, c_a19)
     cov19 = 0
     for r in range(n_runs19):
         crA.rng = np.random.default_rng(19000 + r)
-        Bx = crA.bound(0)
         qhat = 0.0
         ok_all = True
         for n in range(1, n_max19 + 1):
@@ -329,11 +363,11 @@ def run():
             g = crA._rollout(0, 40, (3, 4), w)
             qhat += (g - qhat) / n
             dn = 6.0 * delta19 / (np.pi * np.pi * nA19 * n * n)
-            rad = Bx * np.sqrt(np.log(2.0 / dn) / (2.0 * n))
+            rad = Bx19 * np.sqrt(np.log(2.0 / dn) / (2.0 * n))
             ok_all &= (abs(qhat - Q_true19) <= rad)
         cov19 += int(ok_all)
     thresh19 = 1.0 - delta19 / nA19
-    check("T19 anytime coverage (all n <= n_max)",
+    check("T19 anytime coverage, budget-aware radius (statistical sanity)",
           cov19 / n_runs19 >= thresh19 - 0.05,
           f"cov={cov19}/{n_runs19} (lower bound {thresh19:.3f})")
 
@@ -354,6 +388,23 @@ def run():
     check("T20 paired-CRN estimator identity", ident20)
     check("T20 paired CRN reduces difference variance", var_d < 0.95 * var_s,
           f"Var(Ga-Gb)/[Var(Ga)+Var(Gb)] = {var_d/var_s:.3f}")
+
+    # T21 (B0.3c, 008 §1): natural decision threshold = log(mu_F/mu_M), locked
+    # to eval_exact.py's objective-consistent natural decision; the MC natural
+    # metrics must use this same threshold.
+    muM21, muF21 = 256.0, 256.0 * np.exp(1.0)
+    eta_nat21 = float(np.log(muF21 / muM21))
+    res21 = ee.exact_evaluate(ss, pol, muM21, muF21)
+    check("T21 eta_nat = log(muF/muM) locked to eval_exact",
+          abs(res21["eta_dec"] - eta_nat21) < 1e-12,
+          f"eta_dec={res21['eta_dec']:.12f} log(muF/muM)={eta_nat21:.12f}")
+    H21, L21 = mclib.sample_episodes(model, 200000, 21)
+    lam21, _c21, _z21, _n21 = mclib.simulate_table_policy(ss, pol, H21, L21)
+    H1_21 = H21 == 1
+    pd_nat_mc = float(np.mean(lam21[H1_21] > eta_nat21))
+    check("T21 MC natural P_D at eta_nat matches exact eval",
+          abs(pd_nat_mc - res21["pd"]) < 3e-3,
+          f"MC={pd_nat_mc:.4f} exact={res21['pd']:.4f} (eta_nat={eta_nat21:.3f})")
 
     print(f"\n=== {len(PASS)} passed, {len(FAIL)} failed ({time.time()-t0:.0f}s) ===")
     for name, d in FAIL:
