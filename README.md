@@ -232,6 +232,47 @@
   matched-QoS 口径下 granularity 有独立收益**（论文主线核心证据；B0.6 的 FAIL
   不是 granularity 机制失败，而是 stopping/selection 未解耦 + matched 口径缺
   认证——015 预判最有价值结果）。
+  * **016 §1 P0 修正**：G1 的公共停止器 S_common 用 min_{A_FG}Q<R_λ 判定——
+    但 D8 实际只能从 A_D8 选动作，存在 F(x)=1{q_FG<R_λ≤q_D8} 状态（小包值得买
+    → 公共控制器说继续，但 8-bit 包已不值得 → D8 被迫发 8-bit）。A_FG 本身含
+    granularity 信息 ⇒ "STOP 判定与包粒度无关"表述不成立（action-set leakage，
+    会天然抬高 D8 成本）。G1 的 −12.31 方向来自真实 granularity 仍大概率成立
+    （016 §2：E[N_tx] 只差 0.0775，payload 4.60 vs 15.67，优势几乎全在包粒度），
+    但需要 G1r 审计与保守 Gate 封板。
+- **MVS-B0.7-G1r（依据 advice/016.md，P0 审计 + 保守 Gate + 代码回归，不改 planner）**：
+  **G1r-A（016 §15-1）Forced-Continuation Audit**：在 D8 每个决策状态记录
+  q_FG=min_{A_FG}Q、q_D8=min_{A_D8}Q、R_λ；F(x)=1{q_FG<R_λ≤q_D8}；报告
+  P(F=1)（按决策状态）、P(episode contains F)（按 episode）、
+  ΔB_forced=Σ_{F 状态}(D8 被迫支付的 8-bit 通信成本)——回答"D8 的通信中到底
+  有多少是 FG-action-defined common stop 强迫出来的"；
+  **G1r-B（016 §4/§15-2）保守 S_ref Gate**：停止器改为
+  S_ref(x,h): CONTINUE ⟺ min_{a∈A_D8}Q_λ^(1)(a)<R_λ(x)——两方法共用
+  （只有"至少一个 Direct8 full packet 值得发送"才给 FG 一次 adaptive-granularity
+  机会，对 FG 更苛刻）；若此保守版仍 U95(E[B^FG−B^D8])<0 且双方 FEASIBLE →
+  granularity 独立收益基本无法从公平性击穿（016 §4 预期：−12.31 可能缩小到
+  −5..−10，但不会翻正）；**G1r-C（016 §15-3）代码可信度封板**：q1_fast vs
+  独立 generic dual-Q exact 回归（max|Δ|<1e-9，回归实际揪出并修复了
+  dual_q_exact 的 np.maximum 权重 bug→logaddexp）+ D8 emulation invariant
+  （FG 限定 A_D8 ≡ D8 分支，逐样本一致）；**统计口径（016 §10）**：paired bit
+  正式用 one-sided paired Hoeffding U=D̄+2H√(log(1/δ)/2n)（D∈[−H,H]，
+  分布无关、无 t 假设），t-based one-sided 仅参考；QoS 保留 Wilson；Gate 明确
+  为 intersection-union test。**FULL 结果（N_TEST=600，calibration N_CAL=300）**：
+  G1r-C 双回归 PASS（q1_fast vs generic dual-Q max|Δ|=0——回归实际揪出并修复了
+  dual_q_exact 的 np.maximum 权重 bug，改为 logaddexp；D8 emulation 50 episode
+  逐样本一致）。校准：S_common（G1 语义）η_star=1.2（达标 {1.0,1.2}）；S_ref
+  （保守）η_star_ref=1.0（达标 {1.0}）——各自冻结。**G1r-A（S_common 审计）**：
+  P(F=1) 很小——H=48: 0.0221（41/1856 决策状态）、P(episode F)=0.0342、
+  ΔB_forced=984 bits；H=96: 0.0277（65/2350）、P(episode F)=0.0542、
+  ΔB_forced=1560 bits——**D8 只有约 2-3% 的决策状态被 FG-action-defined stop
+  强迫**，G1 的 D8 劣势主要来自真实 granularity（016 §15 判定）。**G1r-B（保守
+  S_ref）**：H=96 **双方 FEASIBLE（FG 0.0666/0.3703、D8 0.0762/0.3190）→
+  Hoeffding 95% U95(E[B^FG−B^D8])=−5.16 <0 → G1r-B PASS**；E[D]=−11.94、
+  分解 setup 差仅 −1.20、**payload 差 −10.74**（016 §4 预期 −12.31→−5..−10
+  精确命中：缩小但远未翻正）。H=48 双方 P_MD U95 略超/贴近 0.40 → UNRESOLVED
+  （扩样可解），E[D]=−9.54、Hoeffding U95=−6.15 方向一致。**结论：在保守
+  A_D8-reference common-stop 下 granularity 独立收益仍显著（U95<0），fairness
+  无法击穿**——按 016 §15 投入 fresh **B0.7-G2**（FG/D8 分别 (ρ,η)
+  calibration，test 完全 fresh、暂不加 CPI）。
 - **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
@@ -397,12 +438,19 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
 - **B0.7-G1**（已完成，详见上文 G1 bullet）：held-out QoS-dual 认证——H=96
   matched-QoS PASS（双方 FEASIBLE、E[D]=−12.31 CI [−13.26,−11.36]）；H=48
   UNCERTAIN（双方 P_MD U95 略超 0.40，扩样可解）。
-- **B0.7-G2（next）**：fresh held-out matched-QoS Gate + **frozen CPI override**
-  ——在 G1 的 common-stop + QoS-dual 线上把 B0.4a-r 的 CPI 加回（Δ 预算
-  仍按决策序号，base-anchored O(|A|) 置信分配），验证
-  U95(E[B^FG−B^D8])<0 在 CPI 加持下是否保持；若 FG 仍显著省 bits → 论文
-  主线完成闭环（granularity 独立收益 + 可认证 + 可进一步增强）；否则正式
-  关闭 performance-improvement 路线（015 §十三/G2）转入 lower-bound 论文；
+- **B0.7-G2（016 §15-4 定义，next）**：**不再直接接 frozen CPI**（016 §5 P0/P1：
+  B0.4a-r 的 CPI certificate 基于旧 μ/SNR base 与旧 risk objective，
+  G1 已换成 λ⋆=(512, 512e^1.2) 的 dual 语义 ⇒ 旧证书不蕴含新 objective 下
+  policy improvement，塞回最多叫 frozen heuristic override）——G2 先做
+  **纯 QoS-dual constrained comparison**：FG/D8 **分别**在 calibration 上
+  优化各自 (ρ,η)（016 §7/§9：J_m⋆=inf E_π[B] s.t. P_FA≤α, P_MD≤β，
+  ρ∈{128..1024} 控制错误-风险权重、η 控制 FA/MD 相对价格与判决边界；
+  grid 冻结、只在 calibration 用），test 完全 fresh，双方 Wilson
+  U95(feasible) 后比较 Hoeffding U95(E[B^FG−B^D8])——真正的
+  constrained-policy comparison；然后 **B0.7-G3** 重构 DualCPI 使
+  certificate 与当前 R_λ⋆ 一致（016 §5/§15-5），重新获得 certified planning
+  含义——先证 granularity 本身成立、再证 certified planning 能进一步改善
+  （016 §6 顺序，不把两机制重新绑回）；
 - **B1**（fading/packet errors）仍然最后。
 
 关键算术修正（003.md §8）：MVS-B 每 UAV evidence states =
