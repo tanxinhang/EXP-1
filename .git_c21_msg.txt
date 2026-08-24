@@ -1,0 +1,33 @@
+MVS-C C2.1: Budget-Aware Theoretical/Credibility Closure (advice/002.md)
+
+Implements all 4 P0 items of 002's audit on C2 (C2 records fee5cfb/47194bf kept):
+(1) hard-budget constrained pruning fix (002 s4/s5): prune probe iff g>=0 AND
+    c_dir<=h; region A (c1<=h<c_dir) keeps probe as the only feasible structural
+    action even when g>=0 (verified counterexample N=1 fresh/h=20, c1=17, c_dir=24;
+    region-consistency on reachable states: 263 checks, 0 violations; constrained-
+    pruning self-consistency 0 contradictions).
+(2) Gate D split (002 s3): D1 solver-quality = Lagrangian J = E[B]+E[R_theta(x_tau)]
+    vs exact V_theta* — max Delta_J = 1.89% (all non-negative) <= 10% PASS (formal
+    solver certificate; C2's bare-E[B] Gate downgraded to provisional since the
+    negative rel gap was only a dual trade); D2 primal E[C] reported as reference
+    only (requires matched FEASIBLE on both sides to adjudicate).
+(3) matched re-labeling (002 s2): matched grid (rho-homotopy 128..8192) failure is
+    labeled registered grid/family infeasible, NOT mechanism-level infeasible;
+    primal feasibility proven by the explicit pi_full construction (all 8-bit
+    direct, C=96<=H=96, P_D=P_D,max^8b(0.05)=0.8509 >= 0.8382).
+(4) MITM exact 8-bit full-fusion ROC (002 s7): 256^2 + suffix merge, O(256^2 log)
+    vs 256^4; P_D,max^8b(0.05)=0.8509 (eta*=0.8117) -> BETA8=0.1591; 4-bit 0.8482
+    -> 0.1618; stratified sampling n0=n1 (002 s8).
+
+FULL (n_cal=400/hyp, n_test=800/hyp, 971.4s): matched 63-theta homotopy grid has
+no FEASIBLE point (as re-labeled: registered grid infeasible); legacy dialect all
+FEASIBLE — Phase-FG(8-bit) E[B]=27.570 vs Direct8 29.175 (paired E[D]=-1.605,
+Hoeffding U95=4.270, not certified), vs Myopic 22.027 (Phase-FG more expensive,
+not certified), Phase-FG(4-bit) 24.349 (coarser granularity cheaper at beta=0.40).
+Reports: report/MVS-C_C21_report.md (FULL), report/smoke/MVS-C_C21_report.md;
+runner run_mvsc021.py; README bullet + run commands.
+
+During smoke/full, two runner bugs found and fixed: (a) MITM suffix array OOB
+(reversed-cumsum indexing) replaced with forward cumsum of length n+1; (b) pmd
+closure returned P1(Omega>thr) instead of P_MD=P1(Omega<=thr) (swapped ROC), and
+paired generators used a free variable 'f' (now fn2).

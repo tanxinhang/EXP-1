@@ -563,6 +563,31 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
   risk 换更少 bits，Lagrangian 最优性由 V_lag 保证）——求解器质量认证成立，
   **不再做 CPI**（001 §二十七）。报告：`report/MVS-C_C2_report.md`（FULL）、
   `report/smoke/MVS-C_C2_report.md`。
+- **MVS-C C2.1（依据 advice/002.md §二-§八/§十四，Budget-Aware Theoretical/Credibility Closure）**：
+  002 审计的 **4 项 P0 全部闭环**（C2 记录保留不动）：
+  **(1) hard-budget constrained pruning 修复（002 §四/§五）**：prune probe 安全条件改为
+  **prune ⟺ g≥0 ∧ c_dir≤h**——region A（c1≤h<c_dir）时 direct 不可行、probe 是**唯一可行
+  结构动作绝不剪**（002 §四 反例 PASS：N=1 fresh/h=20、c1=17、c_dir=24）；建资源窗三区域
+  law：A（probe 唯一）/B（c_dir≤h<c1+c2，Q_prog=c1+E[R(X1)]）/C（h≥c1+c2，原 E[min{Y,b0}]）
+  ——reachable 263 检查 0 偏差、constrained-pruning 自洽 0 矛盾。
+  **(2) Gate D 拆分（002 §三）**：D1 solver-quality（Lagrangian Jθ=E[B]+E[Rθ(xτ)]
+  vs exact Vθ*，Δ_J 最大 **1.89% ≤ 10% PASS**，取代裸 E[B] Gate——负 rel 只是 dual trade）；
+  D2 primal E[C]（matched 双方 FEASIBLE 才比较）。
+  **(3) matched 定性修正（002 §二）**：网格失败≠机制不可行——**π_full 显式可行构造**
+  （全 8-bit direct，C=96≤H，P_D=P_D,max^8b(0.05)=**0.8509**≥0.8382 ⇒ matched primal 可行）；
+  ρ-homotopy（128…8192）扫描仍无 matched 点 → 定性 **registered-grid infeasible**
+  （不再写机制层不可行）。
+  **(4) MITM 精确 8-bit 全融合 ROC（002 §七）**：256²+suffix merge、O(256² log)
+  非 256⁴；P_D,max^8b(0.05)=0.8509（η*=0.8117）→ BETA8=0.1591（=1−0.8509+ε_D）；分层抽样 n0=n1（002 §八）。
+  报告：`report/MVS-C_C21_report.md`（FULL）、`report/smoke/MVS-C_C21_report.md`。
+  **FULL 主结果（N_CAL=400/N_TEST=800/hyp、971s）**：**Gate D1**（Lagrangian
+  Jθ=E[B]+E[Rθ(x_τ)] vs exact Vθ*）**Δ_J max 1.89% ≤ 10% 全非负 → PASS**（正式
+  solver-quality 证书；C2 的裸 E[B] Gate 正式降级为 provisional，负 rel 只是
+  dual trade）；**D2** 裸 E[B] 仅作 primal 参考（matched 双方 FEASIBLE 才判决）。
+  matched 63-θ ρ-homotopy 仍无网格可行点（定性 **registered-grid infeasible**；
+  primal 由 π_full 构造证明）；legacy 全部 FEASIBLE：Phase-FG(8-bit) E[B]=27.570
+  vs Direct8 29.175（paired E[D]=−1.605、U95=4.270 未认证方向性）、Myopic 22.027
+  （更贵、未认证）、Phase-FG(4-bit) 24.349（β=0.40 下粗粒度更省）。
   **下一步（001 §二十六）＝ MVS-C Architecture Realignment**：
   - **C0 — semantic closure**：论文主 QoS 统一为 **matched detection
     P_FA≤α ∧ P_D≥P_D,max(α)−ε_D**（默认 α=0.05、ε_D=0.01，001 §三；
