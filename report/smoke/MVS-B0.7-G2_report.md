@@ -8,13 +8,13 @@
 
 > **冻结参数（017 §四）**：N=8（GAMMA_B）、levels=(1,2,4,8)、b_setup=16.0、QoS(P_FA≤0.12, P_MD≤0.4)；ρ∈(128, 256, 512, 1024)、η∈(0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0)（28 combos/method，grid 只在 calibration 用）；calibration worlds FG/D8 **完全共用**；**CPI OFF**；test worlds 与 calibration 完全分离；paired CRN；主 operating point **H=96**、secondary stress H=48（同冻结 controller，诚实报告 boundary，不为 H=48 重新校准）。
 
-> **统计（017 §六 方案 A）**：正式 test **直接冻结 N_TEST=1600 per hypothesis、一次性看结果**（不做看结果后的 staged escalation ⇒ fixed-N 95% 覆盖声明成立）；paired bit 用 one-sided paired Hoeffding（D∈[−H,H]，分布无关）；QoS 用 Wilson 95% one-sided upper。Calibration N_CAL=600/hyp @ H=96（017 §五，至少如此）。
+> **统计（017 §六 方案 A）**：正式 test **直接冻结 N_TEST=1600 per hypothesis、一次性看结果**（不做看结果后的 staged escalation ⇒ fixed-N 95% 覆盖声明成立）；paired bit 用 one-sided paired Hoeffding（D∈[−H,H]，分布无关）；QoS 用 **Wilson 双侧 95% 区间的上端点**（018 §十一：z=1.96 是双侧端点，作单侧上界≈97.5% —— 更保守，只改名称不改数值）。Calibration N_CAL=600/hyp @ H=96（017 §五，至少如此）。
 
 > **Gate（017 §八，只允许四种结论）**：Primary H=96 双方 FEASIBLE 且 U95(E[D])<0 → **G2 PASS**；双方 FEASIBLE 且 L95(E[D])>0 → **FAIL**（转 lower-bound / Direct8-near-optimal 路线）；L95≤0≤U95 → **BIT-UNRESOLVED**（不改算法；§六 方案 A 冻结 1600，故按 UNRESOLVED 报告）；任一方不 FEASIBLE → **QoS-UNRESOLVED / INFEASIBLE**（不能比较 bit）。
 
 > **P1 口径修正（017 §一）**：P1-1 只报告 P(F=1|S_common=CONTINUE)（把 STOP 决策状态加入分母只会更低）；P1-2 ΔB_forced 改名 **gross forced-action cost**（非 causal extra cost）并按 episode 归一化；P1-3 dual-Q 回归升级 root + on-policy reachable + r=0/1/2/4 分层 × corner {(128,0.8),(512,1.2),(1024,2.0)}；emulate_d8 计数按真实循环数报告。
 
-> 生成时间: 2026-08-24 03:45:06   模式: SMOKE   N_CAL=60（@H=96），N_TEST=120（@H∈(48, 96)），SMOKE）
+> 生成时间: 2026-08-24 10:55:04   模式: SMOKE   N_CAL=60（@H=96），N_TEST=120（@H∈(48, 96)），SMOKE
 
 ## 1. Invariant suite（017 §九 + P1-3）
 
@@ -101,7 +101,7 @@
 | 1024 | 2.0 | 0.0886 | 0.5098 | UNCERTAIN | — |
 
 - inv-3/inv-4（逐 episode 断言：B=16·N_tx+B_payload、B≤H）：calibration 全 56 次 θ-run 中 violations=0 → **PASS**。
-（21.8s；累计 26.2s）
+（29.3s；累计 33.5s）
 
 ## 3. Primary Gate @ H=96（017 §六/§八，θ̂ 冻结、test fresh）
 
@@ -111,7 +111,7 @@
 
 > **Gate（017 §八）**：QoS-UNRESOLVED / INFEASIBLE。calibration 无可行 θ̂ ⇒ 017 §八：QoS-UNRESOLVED / INFEASIBLE（不能比较 bit）。
 
-（0.0s；累计 26.2s）
+（0.0s；累计 33.5s）
 
 ## 4. Secondary stress @ H=48（017 §四：同冻结 controller，诚实报告 operating-region boundary；不为 H=48 重新校准）
 
@@ -119,7 +119,7 @@
 
 > **Gate（017 §八）**：QoS-UNRESOLVED / INFEASIBLE。calibration 无可行 θ̂ ⇒ 017 §八：QoS-UNRESOLVED / INFEASIBLE（不能比较 bit）。
 
-（0.0s；累计 26.2s）
+（0.0s；累计 33.5s）
 
 ## 5. Secondary diagnostics（017 §七）
 
@@ -150,14 +150,16 @@
 - **P(F=1|S_common=CONTINUE) = 0.0136**（F 状态 5/369 个继续-决策状态）；无条件参考 P(F=1|所有决策状态) = 0.0104（5/480）——低于条件口径（017 P1-1 预期）。
 - P(episode contains F) = 0.0208。
 - **gross forced-action cost = 120.0000 bits = 0.5000 bit/episode**（D8 在公共规则下被迫支付的 8-bit 通信成本；017 P1-2 命名，含 setup+payload）。
+- 结构观察（018 §十 修正）：per-F 成本恒 = 24.0 bits（=16 setup + 8 payload）⇒ 目标 UAV 的 r_cur=0（fresh UAV，此前未上报 evidence，**不必然是 episode 首决策**）；F 的决策索引：P(idx=1)=0.0000、E[idx]=2.00。
 
 ### H=96（θ_ref=(512, 1.2)，fresh N_TEST=120）
 
 - **P(F=1|S_common=CONTINUE) = 0.0281**（F 状态 13/463 个继续-决策状态）；无条件参考 P(F=1|所有决策状态) = 0.0194（13/671）——低于条件口径（017 P1-1 预期）。
 - P(episode contains F) = 0.0542。
 - **gross forced-action cost = 312.0000 bits = 1.3000 bit/episode**（D8 在公共规则下被迫支付的 8-bit 通信成本；017 P1-2 命名，含 setup+payload）。
+- 结构观察（018 §十 修正）：per-F 成本恒 = 24.0 bits（=16 setup + 8 payload）⇒ 目标 UAV 的 r_cur=0（fresh UAV，此前未上报 evidence，**不必然是 episode 首决策**）；F 的决策索引：P(idx=1)=0.0000、E[idx]=2.46。
 
-> **Robustness statement（017 §一）**：即使极端地把 gross forced-action cost 全部视为 leakage bias（H=96：1.3000 bit/episode），也远低于 G1/G1r 的 −12.31 bit gap （H=96）——G1 的 granularity 收益不可能主要由 action-set leakage 解释；G2 已从设计上消除 public/common 停止器。
+> **Robustness statement（018 §九 收紧）**：gross forced-action cost 说明的是 **immediate forced expenditure**（H=96：1.3000 bit/episode，很小）——不是 cascade/总 leakage 的数学上界（forced action 会连锁改变 posterior / UAV selection / stopping / transaction count，|ΔB_causal| 不受此界约束）。因果公平性的强证据由 **G1r-B 提供**（S_ref 从构造上移除 leakage 机制后 U95<0 仍成立）；本审计仅作 immediate-expenditure 诊断与 018 §九 口径修正。
 
 ## 结论
 
@@ -167,5 +169,5 @@
 
 - **B0.7-G2 定位（017 §final）**：separately calibrated QoS-dual policy-family certification。若 **G2 PASS**，论文核心 performance 主线闭环；G3（DualCPI 是否还有独立增益）应变成“是否值得纳入主算法”的 Gate，而不是必做的性能增强——避免系统从“反馈粒度这一核心科学问题”跑回复杂 planner/sample-complexity 工程。
 
-总耗时: 29.1s
+总耗时: 37.4s
 

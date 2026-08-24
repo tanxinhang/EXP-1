@@ -289,32 +289,41 @@
   （017 §一）落地**：forced-continuation 只报 **P(F=1|S_common=CONTINUE)**
   （不再写裸 P(F=1)；把 STOP 决策状态加入分母只会更低）、ΔB_forced→
   **gross forced-action cost**（按 episode 归一化；H=96 fresh N=1600
-  下 ≈1.49 bit/ep ≪ −12.31 gap 的 robustness 陈述）、emulate_d8 计数
+  下 ≈1.49 bit/ep = **immediate forced expenditure**（非 cascade/总
+  leakage 上界；因果公平性强证据由 G1r-B 提供，018 §九）、emulate_d8 计数
   按真实循环数（P2）。**Invariant suite 升级（017 §九，全 PASS）**：
   inv-1 ΣP(m'|x,a)=1（max|Σw−1|=0）、inv-2 dual-Q 回归（root +
   on-policy reachable + r=0/1/2/4 分层 × corners {(128,0.8),(512,1.2),
   (1024,2.0)}：15085 对 max|Δ|=2e-12）、inv-3 B=16·N_tx+B_payload、
   inv-4 B≤H（56 θ-run 0 violations）、inv-5 π_FG|_A_D8 ≡ π_D8（100
-  episodes 逐样本一致）。**FULL 结果**：θ̂_FG=θ̂_D8=**(256,0.8)**；
+  episodes 逐样本一致；**control-flow equivalence 检查，非独立实现互检**，
+  018 §十二）。**FULL 结果**：θ̂_FG=θ̂_D8=**(256,0.8)**；
   **H=96 primary：G2 PASS**（双方 FEASIBLE：FG Wilson U95 0.0896/
   0.3121、D8 0.0849/0.3140；E[D]=**−5.33**、Hoeffding U95=**−1.17**<0、
   L95=−9.48）；**H=48 secondary：也 PASS**（同冻结 controller 双方
   FEASIBLE，E[D]=−5.03、U95=−2.95<0——operating-region boundary 未
   出现）；分解 setup 差 **+1.52**（FG 事务更多：16·(E[N_tx^FG]−E[N_tx^D8])
   =16·0.0953）、payload 差 −6.85（净省全来自 evidence payload），
-  合计 −5.33）；θ̂_FG=θ̂_D8 ⇒ cross-eval 的 operating-point 通道为 0，
-  **−5.33 全部来自 action-space granularity**（同一 dual operating
-  point 下 FG 严格更省，017 §七 通道分离的最干净情形）。**结论：G2
+  合计 −5.33）。**机制归因（018 §七 限定）**：对**本次 run 选出的等 θ
+  控制器**（θ̂_FG=θ̂_D8），两者唯一代码差异是 admissible evidence-
+  acquisition action space（同时影响 selection 与 stopping）⇒ 观测 test
+  gap 归因于该差异——**不外推为一般结论**（D8 的 θ̂ 是 empirical
+  minimizer，near-tie 见下）。**结论：G2
   回答 017 §二 主问题 = FG 胜**（E[B|H0]/E[B|H1] 两 hypothesis 均省，
-  非平均掩盖）。**sensitivity（017 §五 校准边界噪声，正式协议不临场
-  放宽 §六）**：FG 的 Ê_cal[B] 最小候选 (128,0.8) 为边缘 UNCERTAIN
-  （U95(P_FA)=0.1229 仅超 0.12）——若真可行，θ̂_FG 将下移，只会加大
-  FG−D8 差距；D8 的更低成本候选均硬 INFEASIBLE（ρ=128 ⇒ P_MD≈1.0），
-  θ̂_D8=(256,0.8) 即族内可行最小成本；方向结论对该边界噪声稳健。
-  论文表述：Under separately calibrated QoS-dual
-  controllers and fresh held-out testing, adaptive feedback granularity
-  achieves statistically certified communication savings over the
-  Direct8 policy family considered.
+  非平均掩盖）。**sensitivity（018 §四/§五 收紧；runner 已改为扫描所有
+  Ê_cal[B] < Ê_cal[B_{θ̂}] 的 challenger 并逐个分类）**：FG@(128,0.8) 是
+  **cheaper + UNCERTAIN challenger**（U95(P_FA)=0.1229 仅超 0.12）——
+  “may potentially select a lower-cost FG controller; this requires an
+  independent sensitivity calibration”（018 §五，不断言“只会加大”）；D8
+  更低成本候选均硬 INFEASIBLE（ρ=128 ⇒ P_MD≈1.0）；**D8@(256,0.8) vs
+  (256,1.0) 仅差 0.02 bit/episode ⇒ θ̂_D8 是 empirical minimizer**（018
+  §七 near-tie）。
+  论文表述（018 §八 收紧）：Under separately calibrated QoS-dual
+  controllers selected from the same pre-specified calibration grid and
+  evaluated on fresh held-out trials, adaptive feedback granularity
+  achieves statistically certified communication savings **relative to
+  the calibrated Direct8 controller**（test 认证对象是 π̂_FG vs π̂_D8
+  单对，非整个 Direct8 policy family）。
 - **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
@@ -488,19 +497,33 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
   Hoeffding + Wilson QoS；CPI OFF）；**H=96 primary：G2 PASS**（θ̂_FG=
   θ̂_D8=(256,0.8)、双方 FEASIBLE、E[D]=−5.33、U95=−1.17<0）、**H=48
   stress 同冻结 controller 也 PASS**（E[D]=−5.03、U95=−2.95<0）；
-  θ̂_FG=θ̂_D8 ⇒ **−5.33 全部来自 action-space granularity**（operating-point
-  通道为 0）。**结论**：granularity 在“各自最公平 controller”下仍有统计
+  θ̂_FG=θ̂_D8 ⇒ −5.33 归因于 admissible action space 差异（**限定于本次
+  选出的等 θ 控制器，018 §七**；operating-point 通道为 0）。**结论**：granularity 在“各自最公平 controller”下仍有统计
   认证的通信收益（≈−5.3 bit/ep @ H=96 且 H=48 也稳定），**论文核心
   performance 主线闭环**（先证 granularity 本身成立，016 §6 顺序）；
-- **B0.7-G3（016 §5/§15-5，**预注册 Gate**，next）**：把 DualCPI
+- **B0.7-G2r（018 §十五 credibility closure，已完成）**：不改主 Gate 数值，
+  只修文档/诊断——**G3 预注册符号修正（P0，018 §二）**；rho 明确为
+  **effective posterior risk scale**（018 §三 方案 A，数值不变）；sensitivity
+  改为 **challenger 集合扫描**（E_cal[B]<E_cal[B_theta-hat] 逐个分类，018 §四）；
+  **D8 (256,0.8) vs (256,1.0) near-tie => theta-hat_D8 是 empirical minimizer**
+  （018 §七）；删“gross forced cost 是 leakage 上界”暗示（018 §九，强证据
+  移交 G1r-B）；“24 bits ⇒ 首决策”改为 **r_cur=0 fresh UAV + F 决策索引
+  统计**（018 §十）；论文句改 **relative to the calibrated Direct8
+  controller**（018 §八）；“−5.33 全部来自 granularity”限定为 **for the
+  selected equal-theta controllers in this run**（018 §七）。runner 同文件，
+  报告重生成（数值与 G2 一致）。
+- **B0.7-G3（016 §5/§15-5，**预注册 Gate（018 §二 符号已修正）**，next）**：把 DualCPI
   certificate 重构为与当前 dual objective（R_{ρ,η}，017 §二）一致，重新
   获得 certified planning 含义；**定位（017 final）：G3 是“是否值得纳入
   主算法”的 Gate，不是必做性能增强**。**预注册判定规则（跑 G3 前冻结，
   test 完全 fresh，跑后不临场改动）**：
   1. base = G2 冻结的 θ̂_FG/θ̂_D8 one-step controllers（G2 的 CPI OFF 保持）；
-  2. 主判定（matched-QoS，同 G2 口径：双方 test FEASIBLE 才比 bit）：
-     **U95(E[B^base] − E[B^+DualCPI]) < −ε_G3**，默认 **ε_G3 = 2.0
-     bits/episode**（低于此值 = 独立增益不值得算法复杂度的代价）；
+  2. 主判定（**018 §二 符号修正**；matched-QoS 同 G2 口径：双方 test
+     FEASIBLE 才比 bit）：**D = B^{CPI} − B^{base}**（沿用 G2“新方法 −
+     baseline”记号），**U95(E[D]) < −ε_G3**，默认 **ε_G3 = 2.0
+     bits/episode**（U95 上界 < −2 ⇒ 最坏可信情形也省 ≥2 bits/episode
+     才 ADOPT；等价写法 Δ=B^{base}−B^{CPI}、L95(E[Δ])>ε_G3；杜绝
+     “DualCPI 更贵却 ADOPT”的符号反转——018 P0）；
   3. 四种结局：**ADOPT**（主判定过、无 QoS 退化）/ **NOT-ADOPTED**（Δ 不足
      或 bit/QoS UNRESOLVED——不改算法、不重调参）→ 论文主线以 **G2 封板** /
      QoS-INFEASIBLE（+DualCPI 引入 base 不可行）→ NOT-ADOPTED；
@@ -513,3 +536,4 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
 **1+2+4+16+256 = 279**（不是 47）；279⁸ ≈ 1e19 ⇒ **MVS-B 禁止复用全枚举 StateSpace**，
 必须使用 R2.1-G3 的 sparse online planner。MVS-B 最重要的实验是
 sensing/U2U **anti-correlation** regime（强 sensing ≠ 低通信成本）。
+

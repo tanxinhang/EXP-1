@@ -37,11 +37,19 @@ N_CAL=600/hypothesis @ H=96（017 §五，至少如此）。
 统计（017 §六 方案 A）：**正式 test 直接冻结 N_TEST=1600 per
 hypothesis、一次性看结果**——不做看结果后的 staged escalation；paired
 bit 用 fixed-N one-sided paired Hoeffding（D=B^FG-B^D8 in [-H,H]，分布
-无关），QoS 用 Wilson 95% one-sided upper。Gate（017 §八）只允许四种
+无关），QoS 用 Wilson 双侧 95% 区间上端点（018 §十一：z=1.96 为双侧
+端点，作单侧上界≈97.5% —— 更保守，只改名称不改数值）。Gate（017 §八）
+只允许四种
 结论：G2 PASS / FAIL / BIT-UNRESOLVED / QoS-UNRESOLVED-INFEASIBLE。
 
 命名（017 §三）：实验对象是 **separately calibrated one-step QoS-dual
 controllers**（不是 optimized/globally optimized）。
+
+018 §三（方案 A，仅文档）：ρ 定义为 **effective posterior risk scale**
+（= 已吸收 prior 归一化的尺度，理论表达为 \barλ_M=λ_M/π_1、\barλ_F=λ_F/π_0）；
+当前 π_0=π_1=0.5 ⇒ 条件错误率 Lagrange 的 R_exact=min{(λ_M/π_1)p,
+(λ_F/π_0)(1−p)}=2·R_code ⇒ 仅统一缩放 2 倍，不改变 θ̂ 选择次序/可行性
+⇒ **数值与 G2 结论不变**（016 §9 原意即 \barλ 参数化，代码与 test 数字不动）。
 
 Secondary diagnostics（017 §七）：
   (1) E[B|H0], E[B|H1] 分别报告；
@@ -342,6 +350,7 @@ def sim_common_audit(pl, rho, eta, H, L_i, quants8, powers8, acc):
       通信成本（017 P1-2：不再称 causal extra cost）。"""
     x, h, cost = 0, float(H), 0.0
     has_F = False
+    t_idx = 0                                     # episode 内决策序号（018 §十）
     while True:
         if h < 1e-9:
             break
@@ -349,6 +358,7 @@ def sim_common_audit(pl, rho, eta, H, L_i, quants8, powers8, acc):
         R = r_rho(om, rho, eta)
         q_fg, _ = q_min_fg(pl, x, om, h, rho, eta)
         acc["n_dec_all"] += 1                     # 所有 stopping-decision 状态
+        t_idx += 1
         if q_fg is None or q_fg >= R:
             break                                 # S_common: STOP（两方法都停）
         # S_common=CONTINUE 的决策状态
@@ -361,6 +371,8 @@ def sim_common_audit(pl, rho, eta, H, L_i, quants8, powers8, acc):
             acc["n_F"] += 1
             r_cur = z_decode_b((x // (BASE_B ** a[0])) % BASE_B)[0]
             acc["F_cost"] += BH + (R_MAX - r_cur)  # gross forced-action cost
+            acc["F_idx_sum"] += t_idx             # 018 §十：F 的决策索引统计
+            acc["n_F_idx1"] += int(t_idx == 1)
             has_F = True
         # D8 在公共规则下被迫执行其最优 (i,8)
         x, h, _lam, cost, _pay, _nt = apply_action(
@@ -575,7 +587,7 @@ def emulate_d8_g2(pl, quants8, powers8, rho, eta, n_ep_check=50, seed_off=0):
 def forced_audit(pl, quants8, powers8, rho, eta, H, H_all, L_all):
     """017 §一（P1-1/P1-2）口径的 forced-continuation audit。"""
     acc = {"n_dec_all": 0, "n_dec": 0, "n_F": 0, "F_cost": 0.0,
-           "ep_F": 0, "ep": 0}
+           "F_idx_sum": 0.0, "n_F_idx1": 0, "ep_F": 0, "ep": 0}
     for e in range(len(H_all)):
         sim_common_audit(pl, rho, eta, H, L_all[e], quants8, powers8, acc)
     return acc
@@ -753,8 +765,9 @@ def main():
     out("> **统计（017 §六 方案 A）**：正式 test **直接冻结 "
         f"N_TEST={FULL_N_TEST} per hypothesis、一次性看结果**（不做看结果后"
         "的 staged escalation ⇒ fixed-N 95% 覆盖声明成立）；paired bit 用 "
-        "one-sided paired Hoeffding（D∈[−H,H]，分布无关）；QoS 用 Wilson "
-        "95% one-sided upper。Calibration N_CAL="
+        "one-sided paired Hoeffding（D∈[−H,H]，分布无关）；QoS 用 **Wilson "
+        "双侧 95% 区间的上端点**（018 §十一：z=1.96 是双侧端点，作单侧上界"
+        "≈97.5% —— 更保守，只改名称不改数值）。Calibration N_CAL="
         f"{FULL_N_CAL}/hyp @ H={CAL_H}（017 §五，至少如此）。")
     out("")
     out("> **Gate（017 §八，只允许四种结论）**：Primary H=96 双方 FEASIBLE "
@@ -866,23 +879,33 @@ def main():
     out(f"- inv-3/inv-4（逐 episode 断言：B=16·N_tx+B_payload、B≤H）："
         f"calibration 全 {len(RHO_GRID)*len(ETA_GRID)*2} 次 θ-run 中 "
         f"violations={viol_cal} → **PASS**。")
-    # 017 §五 校准边界噪声 sensitivity（数据驱动，不临场放宽）
+    # 018 §四：challenger 集合（Ê_cal[B] < Ê_cal[B_θ̂]）逐个分类，
+    # 替代"绝对 Ê[B] 最小"（后者会抓到退化 always-0-bit 控制器，018 §四 P1）。
     for mode in ("FG", "D8"):
-        tbl = tables[mode]
-        th_min = min(tbl, key=lambda th: (tbl[th]["eb"], th[0], th[1]))
         ts = theta_star[mode]
-        if ts is not None and th_min != ts:
-            s_min = tbl[th_min]
-            cls_min = classify_qos(s_min["kfa"], s_min["kmd"], s_min["n0"])
-            if cls_min == "UNCERTAIN":
-                sfx = ("边缘 UNCERTAIN ⇒ 若真可行只会降低该方法成本 ⇒ "
-                       "方向结论只会加强")
-            else:
-                sfx = ("硬 INFEASIBLE（L95 已超限）⇒ θ̂ 即族内可行最小")
-            out(f"- sensitivity（017 §五 校准边界噪声）：{mode} 的 Ê_cal[B] "
-                f"最小候选 = ({th_min[0]}, {fmt(th_min[1],1)})（分类 "
-                f"{cls_min}，Ê[B]={fmt(s_min['eb'])}）≠ θ̂_{mode} —— {sfx}"
-                f"。正式协议不临场放宽（017 §六），论文以 sensitivity 处理。")
+        if ts is None:
+            continue
+        eb_hat = tables[mode][ts]["eb"]
+        chall = [(th, tables[mode][th]) for th in tables[mode]
+                 if tables[mode][th]["eb"] < eb_hat - 1e-9]
+        if not chall:
+            out(f"- sensitivity（018 §四）：{mode} 无 Ê_cal[B] < "
+                f"Ê_cal[B_θ̂={ts}]={fmt(eb_hat)} 的 challenger ⇒ θ̂ 即族内"
+                f"最小成本可行选择。")
+            continue
+        out(f"- sensitivity（018 §四：challenger 集合 C_{mode} = {{θ: "
+            f"Ê_cal[B_θ] < Ê_cal[B_{{θ̂_{mode}}}]={fmt(eb_hat)}}}，逐个分类；"
+            f"重点是 **cheaper + UNCERTAIN** challenger）：")
+        for (th, s) in sorted(chall,
+                              key=lambda kv: (kv[1]["eb"], kv[0][0], kv[0][1])):
+            cls = classify_qos(s["kfa"], s["kmd"], s["n0"])
+            mark = (" ⚠ cheaper+UNCERTAIN（需 sensitivity 复核，018 §四）"
+                    if cls == "UNCERTAIN" else "")
+            out(f"  - ({th[0]}, {fmt(th[1],1)})：分类 {cls}，"
+                f"Ê[B]={fmt(s['eb'])}{mark}")
+        out("  注（018 §六 anti-post-hoc）：若 sensitivity（如 N_CAL=1200）"
+            "改选 θ̂，**必须换全新 test seeds 重新认证**（当前 test 已可见）；"
+            "若 θ̂ 不变，原 G2 test 保留。")
     out(f"（{time.time()-t_cal:.1f}s；累计 {time.time()-t_start:.1f}s）")
     out("")
 
@@ -1006,20 +1029,26 @@ def main():
             f"= {fmt(per_ep)} bit/episode**（D8 在公共规则下被迫支付的 8-bit "
             f"通信成本；017 P1-2 命名，含 setup+payload）。")
         per_f = acc["F_cost"] / max(acc["n_F"], 1)
-        if acc["n_F"] > 0 and abs(per_f - (BH + R_MAX)) < 1e-9:
-            out(f"- 结构观察：per-F 成本恒 = {fmt(per_f, 1)} bits（=16 setup"
-                f"+8 payload ⇒ 所有 F 状态发生在 r_cur=0 的首决策状态；"
-                f"与 G1r 的 1560/65=24.0 逐位一致，审计实现与 G1r 语义吻合）。")
+        if acc["n_F"] > 0:
+            p_idx1 = acc["n_F_idx1"] / acc["n_F"]
+            e_idx = acc["F_idx_sum"] / acc["n_F"]
+            out(f"- 结构观察（018 §十 修正）：per-F 成本恒 = {fmt(per_f, 1)} "
+                f"bits（=16 setup + 8 payload）⇒ 目标 UAV 的 r_cur=0（fresh "
+                f"UAV，此前未上报 evidence，**不必然是 episode 首决策**）；"
+                f"F 的决策索引：P(idx=1)={fmt(p_idx1)}、E[idx]={fmt(e_idx, 2)}"
+                f"{' ⇒ 全部发生在首决策' if p_idx1 == 1.0 else ''}。")
         else:
-            out(f"- 结构观察：per-F 平均成本 = {fmt(per_f, 1)} bits"
-                f"（n_F={acc['n_F']}）。")
+            out(f"- 结构观察：无 F 状态。")
         out("")
     per_ep96 = audit_res[96]["F_cost"] / max(audit_res[96]["ep"], 1)
-    out("> **Robustness statement（017 §一）**：即使极端地把 gross forced-"
-        "action cost 全部视为 leakage bias（H=96："
-        f"{fmt(per_ep96)} bit/episode），也远低于 G1/G1r 的 −12.31 bit gap "
-        "（H=96）——G1 的 granularity 收益不可能主要由 action-set leakage "
-        "解释；G2 已从设计上消除 public/common 停止器。")
+    out("> **Robustness statement（018 §九 收紧）**：gross forced-action "
+        "cost 说明的是 **immediate forced expenditure**（H=96："
+        f"{fmt(per_ep96)} bit/episode，很小）——不是 cascade/总 leakage "
+        "的数学上界（forced action 会连锁改变 posterior / UAV selection / "
+        "stopping / transaction count，|ΔB_causal| 不受此界约束）。因果"
+        "公平性的强证据由 **G1r-B 提供**（S_ref 从构造上移除 leakage 机制后 "
+        "U95<0 仍成立）；本审计仅作 immediate-expenditure 诊断与 018 §九 "
+        "口径修正。")
     out("")
 
     # ---------------------------------------------- 7. conclusion
@@ -1035,11 +1064,13 @@ def main():
         f"U95(E[D])={fmt(g48['u95'])}）。")
     out("")
     if g96["verdict"] == "G2 PASS":
-        out("> **论文正式表述（017 §八）**：Under separately calibrated "
-            "QoS-dual controllers and fresh held-out testing, adaptive "
-            "feedback granularity achieves statistically certified "
-            "communication savings over the Direct8 policy family "
-            "considered.")
+        out("> **论文正式表述（018 §八 收紧）**：Under separately calibrated "
+            "QoS-dual controllers selected from the same pre-specified "
+            "calibration grid and evaluated on fresh held-out trials, "
+            "adaptive feedback granularity achieves statistically certified "
+            "communication savings **relative to the calibrated Direct8 "
+            "controller**（test 认证对象是 π̂_FG vs π̂_D8 单对，非整个 policy "
+            "family，018 §八）。")
     out("")
     out("- **B0.7-G2 定位（017 §final）**：separately calibrated QoS-dual "
         "policy-family certification。若 **G2 PASS**，论文核心 performance "
