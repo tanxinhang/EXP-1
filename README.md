@@ -412,6 +412,7 @@ python run_mvsb06prer.py     # B0.6-pre-r credibility patch（014，约 5–20 �
 python run_mvsb06.py         # B0.6 matched-QoS gate（约 25–40 分钟）
 python run_mvsb06.py --map   # B0.6 + b_setup regime map（secondary，约 30–50 分钟）
 python run_mvsb07g2.py       # B0.7-G2 separately calibrated QoS-dual certification（017；FULL 冻结 N_CAL=600/N_TEST=1600，约 15–30 分钟）
+python run_mvsc01.py         # MVS-C C0+C1 semantic closure + link-aware phase theorem 验证（001 §二十六.0-1，约 <1 分钟）
 python test_regressions.py   # regression suite（约 5–7 分钟；运行结束打印 all checks PASS）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
@@ -522,6 +523,15 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
   （019 §6-§9，含 Gate A/B、δ_G3 effect-size、主比较 FG_base↔FG_DualCPI）
   **存档保留**，仅在未来换 regime 且需要 certified planning 时启用，
   **不进当前路线**（001 §二十五：planner 不是瓶颈，不值得为它堆算力）。
+- **MVS-C C0+C1（依据 advice/001.md §二十六.0-§二十六.1 先行验证）**：
+  semantic closure + link-aware phase theorem 验证模块 `run_mvsc01.py`
+  （独立于 G2 runner，不改 G2 数值）——**C0 文本断言 7/7 PASS**（README/
+  runner 已含 matched detection QoS `P_FA≤α ∧ P_D≥P_D,max(α)−ε_D`、
+  link-aware cost `c_{i,r→r'}=b_{0,i}+d_i(r,r')`、frame-window hard budget
+  `C_max^{frame}` 口径；`_decode_zs` 改用 `pl.N`（001 §十九.2，runner
+  已同步修复硬编码 N_UAV），belief canonical z-state / log-sigmoid 登记）；
+  **C1 数值验证 PASS**（五分布，情形 A/B/C 全分支 + κ=1 退化复现 013 原定理：
+  b* 解析=暴力扫描、∂⁺g(b)≡P(Y>b) 成立；报告 `report/MVS-C_C0C1_validation.md`）。
   **下一步（001 §二十六）＝ MVS-C Architecture Realignment**：
   - **C0 — semantic closure**：论文主 QoS 统一为 **matched detection
     P_FA≤α ∧ P_D≥P_D,max(α)−ε_D**（默认 α=0.05、ε_D=0.01，001 §三；

@@ -277,18 +277,23 @@ def dual_q_exact(pl, x, om, i, r2, rho, eta):
     return c + float(np.sum(w * Rv))
 
 
-def _decode_zs(x):
+def _decode_zs(x, n=None):
+    """C0（001 §十九.2）：UAV 数由调用方传入（pl.N），不再硬编码
+    全局 N_UAV=8——runner 可复用于 N=4/N=8 重放（001 §二十六 C2/C3）。"""
+    if n is None:
+        n = N_UAV
     rem = int(x)
     zs = []
-    for _ in range(N_UAV):
+    for _ in range(n):
         zs.append(rem % BASE_B)
         rem //= BASE_B
     return zs
 
 
 def q_min_fg(pl, x, om, h, rho, eta):
-    """min over A_FG of Q^{(1)}（同时返回最优动作 (i,r2)）。"""
-    zs = _decode_zs(x)
+    """min over A_FG of Q^{(1)}（同时返回最优动作 (i,r2)）。
+    C0-1（001 §十九.2）：解码用 pl.N（不再依赖 runner 全局 N_UAV）。"""
+    zs = _decode_zs(x, pl.N)
     best_q, best_a = None, None
     for i in range(N_UAV):
         zi = zs[i]
