@@ -52,6 +52,19 @@ R_{ρ,η}(x)=min{ρ·p, ρe^η(1−p)} —— **代码即 exact effective-multip
 parameterization**（根本不需要“乘 2/统一缩放”步骤，019 §2：R→2R 而
 c_a 不缩放会改变 stopping condition，原表述不严格）。数值与 G2 结论不变。
 
+001 §final 重定位（**本文档/runner 的当前角色**）：**G2 数值保留、定位降为
+homogeneous-link mechanism-validation special case**（001 §二十四：这是
+16+Δr 均匀成本模型下的机制证据，不是 SystemModel 最终 ISAC 通信主结论）；
+**G3（DualCPI）暂时 SUSPENDED**（001 §二十五：当前瓶颈是 architecture
+realignment 而非 planner）；论文主 QoS 口径按 001 §三 统一为
+P_FA≤α ∧ P_D≥P_D,max(α)−ε_D（默认 α=0.05、ε_D=0.01），本 G2 注册的
+P_MD≤0.40 仅作机制验证口径；成本模型在接下来 MVS-C C0 改为 link-aware
+（c_{i,r→r'}=b_{0,i}+d_i(r,r')，16+Δr 即 b_{0,i}=16、κ_i=1 的 special
+case，001 §六）；hard budget 为 frame-window C_{U2U}(ω)≤C_max^{frame}。
+下一步不是 G3，而是 **MVS-C Architecture Realignment（C0–C5，001 §二十六）**
+及其四个论文 Gate（A 数学正确性 / B 机制必要性 / C 通信现实性 / D 求解器
+质量，001 §二十七）。
+
 Secondary diagnostics（017 §七）：
   (1) E[B|H0], E[B|H1] 分别报告；
   (2) 记录 (rho*_FG, eta*_FG), (rho*_D8, eta*_D8) 及 calibration
@@ -1079,29 +1092,40 @@ def main():
         f"U95(E[D])={fmt(g48['u95'])}）。")
     out("")
     if g96["verdict"] == "G2 PASS":
-        out("> **论文正式表述（018 §八 收紧）**：Under separately calibrated "
-            "QoS-dual controllers selected from the same pre-specified "
-            "calibration grid and evaluated on fresh held-out trials, "
-            "adaptive feedback granularity achieves statistically certified "
-            "communication savings **relative to the calibrated Direct8 "
-            "controller**（test 认证对象是 π̂_FG vs π̂_D8 单对，非整个 policy "
-            "family，018 §八）。")
+        out("> **论文正式表述（001 §final 重定位 + 018 §八 收紧）**：本 G2 的 "
+            "statistically certified savings 声明**限定于**"
+            "**homogeneous-link mechanism-validation special case**（001 "
+            "§二十四：16+Δr 均匀成本、P_MD≤0.40 机制口径、planner 非瓶颈）"
+            "——**不再作为论文最终 ISAC/通信主结论**；论文主 QoS 口径统一为 "
+            "**matched detection：P_FA≤α ∧ P_D≥P_D,max(α)−ε_D**（默认 α=0.05、"
+            "ε_D=0.01，001 §三），成本模型升级为 **link-aware "
+            "c_{i,r→r'}=b_{0,i}+d_i(r,r')**（16+Δr 为 homogeneous special "
+            "case，001 §六），hard budget 改为 **frame-window "
+            "C_{U2U}(ω)≤C_max^{frame}**（001 §七）——**本 G2 数值与机制结论"
+            "保留为 special-case evidence，论文主线移交 MVS-C**（001 "
+            "§二十六：C0–C5 realignment）。")
     out("")
-    out("- **B0.7-G2 定位（017 §final）**：separately calibrated QoS-dual "
-        "policy-family certification。若 **G2 PASS**，论文核心 performance "
-        "主线闭环。\n"
-        "- **B0.7-G3 = DualCPI Value-of-Complexity Gate（019 §6-§9，next）**：\n"
-        "  主比较仅 **FG_base ↔ FG_DualCPI**（D8+DualCPI 只作 secondary "
-        "diagnostic，019 §9——不做 FG/FG+CPI/D8/D8+CPI 四格扩散）；"
-        "**双 Gate（019 §6）**：Gate A（performance，matched-QoS 同 G2）："
-        "D=B^{CPI}−B^{base}、U95(E[D])<−δ_G3；Gate B（practical relevance，"
-        "独立统计不混入 A）：ΔN_Q（rollout worlds/decision）、ΔT_cpu、"
-        "W_CPI=E[rollout worlds per decision] + 预注册预算 C_CPI≤C_max；"
-        "δ_G3 默认 2.0 bits/episode = **minimum practically relevant "
-        "communication saving（effect-size，≈5%·E[B^{base}]，019 §7）**——"
-        "不是 algorithm-complexity 的代理（019 §5：2 communication bits "
-        "≠ planner complexity）。ADOPT ⟺ A 过 ∧ B 预算内 ∧ 无 QoS 退化；"
-        "否则 NOT-ADOPTED → G2 结论即最终通信结论，不继续堆算法。")
+    out("- **B0.7-G2 定位（017 §final + 001 §二十四 重定位）**：separately "
+        "calibrated QoS-dual policy-family certification —— **G2 数值与机制"
+        "结论保留为 homogeneous-link mechanism-validation special case**"
+        "（001 §二十四：16+Δr 均匀成本、P_MD≤0.40 机制口径、planner 非瓶颈）"
+        "；**不再作为论文最终 ISAC/通信主结论**。论文主 QoS 统一为 **matched "
+        "detection：P_FA≤α ∧ P_D≥P_D,max(α)−ε_D**（默认 α=0.05、ε_D=0.01，"
+        "001 §三）；成本模型升级为 **link-aware "
+        "c_{i,r→r'}=b_{0,i}+d_i(r,r')**（16+Δr 为 homogeneous special case，"
+        "001 §六）；hard budget 改为 **frame-window "
+        "C_{U2U}(ω)≤C_max^{frame}**（001 §三/§七）。\n"
+        "- **B0.7-G3（DualCPI）＝ SUSPENDED（001 §二十五：planner 不是当前瓶颈）"
+        "**：双 Gate 预注册文本（019 §6-§9）**存档保留**，仅在未来换 regime "
+        "且需要 certified planning 时启用，**不进当前路线**。**下一步 = "
+        "MVS-C Architecture Realignment（001 §二十六：C0 semantic closure、"
+        "C1 link-aware phase theorem、C2 phase-guided policy（N=4）、C3 N=8 "
+        "homogeneous replay（migration Gate：必须复现本 G2 special-case 数值）、"
+        "C4 N=8 heterogeneous U2U（论文 headline：positive/independent/"
+        "anti-correlation regime）、C5 protocol robustness）**；**论文四 Gate"
+        "（001 §二十七）**：A 数学正确性 / B 机制必要性（Phase-FG<Direct8 且 "
+        "<Static Progressive）/ C 通信现实性（b_ctrl>0、p_succ<1、"
+        "anti-correlation 下仍成立）/ D 求解器质量（N=4 vs exact CMDP）。")
     out("")
     out(f"总耗时: {time.time() - t_start:.1f}s")
     out("")

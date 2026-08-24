@@ -518,32 +518,38 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
   controller**（018 §八）；“−5.33 全部来自 granularity”限定为 **for the
   selected equal-theta controllers in this run**（018 §七）。runner 同文件，
   报告重生成（数值与 G2 一致）。
-- **B0.7-G3 = DualCPI Value-of-Complexity Gate（016 §5/§15-5 定义；
-  **预注册（018 §二 符号已修正）；019 §6-§9 双 Gate 设计**，next）**：
-  把 DualCPI certificate 重构为与当前 dual objective（R_{ρ,η}）一致；
-  **主比较仅 FG_base ↔ FG_DualCPI**（D8+DualCPI 只作 secondary
-  diagnostic，019 §9——不做 FG/FG+CPI/D8/D8+CPI 四格扩散）；G3 回答
-  “在已成立的 FG 上，certified planning 是否还提供足够独立收益”（019
-  §9 主问题限定）。**预注册双 Gate（跑前冻结、test 完全 fresh、跑后不
-  临场改动）**：
-  1. base = G2 冻结的 θ̂_FG one-step controller（CPI OFF 保持）；
-  2. **Gate A — performance**（matched-QoS 同 G2：双方 test FEASIBLE 才
-     比 bit）：**D = B^{CPI} − B^{base}**，**U95(E[D]) < −δ_G3**，默认
-     **δ_G3 = 2.0 bits/episode = minimum practically relevant
-     communication saving**（**effect-size threshold，≈5%·E_cal[B^{base}]，
-     019 §7**）——**不是 algorithm-complexity 的代理**（019 §5：2
-     communication bits ≠ planner complexity）；等价 L95(E[B^{base}] −
-     E[B^{CPI}]) > δ_G3；
-  3. **Gate B — practical relevance（独立统计，不混入 Gate A）**：报告
-     ΔN_Q（rollout worlds/decision）、ΔT_cpu、以及在线 sampling 的
-     W_CPI = E[rollout worlds per decision]；预注册复杂度预算
-     **C_CPI ≤ C_max**；
-  4. **结局**：**ADOPT** ⟺ Gate A 过 ∧ Gate B 预算内 ∧ 无 QoS 退化；
-     **NOT-ADOPTED**（Gate A 不过 / 预算超 / bit-QoS UNRESOLVED——不改
-     算法、不重调参）→ 论文主线以 **G2 封板**；QoS-INFEASIBLE →
-     NOT-ADOPTED；
-  5. 若 NOT-ADOPTED：DualCPI 不进主算法，G2 结论即论文最终通信结论，
-     不再堆 planner 复杂度（019 final）。
+- **B0.7-G3（DualCPI）＝ SUSPENDED（001 §二十五）**：双 Gate 预注册文本
+  （019 §6-§9，含 Gate A/B、δ_G3 effect-size、主比较 FG_base↔FG_DualCPI）
+  **存档保留**，仅在未来换 regime 且需要 certified planning 时启用，
+  **不进当前路线**（001 §二十五：planner 不是瓶颈，不值得为它堆算力）。
+  **下一步（001 §二十六）＝ MVS-C Architecture Realignment**：
+  - **C0 — semantic closure**：论文主 QoS 统一为 **matched detection
+    P_FA≤α ∧ P_D≥P_D,max(α)−ε_D**（默认 α=0.05、ε_D=0.01，001 §三；
+    本 G2 的 P_MD≤0.40 降为 mechanism-validation 口径）；formal objective
+    加 hard budget **C_{U2U}(ω)≤C_max^{frame}**（001 §七：frame-window
+    物理约束，非 planner horizon）；communication cost 升级为 **link-aware
+    c_{i,r→r'}=b_{0,i}+d_i(r,r')**（16+Δr 为 homogeneous special case、
+    b_{0,i}=16、κ_i=1，001 §六）；belief 只保留 canonical z-state（删
+    重复 lam，001 §十九.3）；`_decode_zs` 用 pl.N（001 §十九.2）；sigmoid
+    用 log-sigmoid（001 §十九.4）；
+  - **C1 — link-aware phase theorem**：g_{s,i}(b_i)=E[min{D_{s,i}−d_{2,i},
+    b_i}]、b*_{s,i}=inf{b:g≥0}（001 §十二：κ=1 时退化回原定理；∂⁺g/∂b =
+    P(Y_{s,i}>b) = second-refinement 触发概率）；
+  - **C2 — phase-guided policy（N=4）**：probe(r→r+) vs jump(r→r_max) vs
+    STOP，Q_i^{prog}/Q_i^{dir} 与 **theory-certified action pruning**
+    （g≥0 ⇒ probe 剔除，O(2N) 非 O(N|R|)，001 §十四）；与 exact budgeted
+    CMDP 比对（Gate D）；
+  - **C3 — N=8 homogeneous replay（migration Gate，001 §二十六）**：新架构
+    必须**逐样本复现本 G2 special-case 数值**（G2 不删除、只重定位）；
+  - **C4 — N=8 heterogeneous U2U（论文 headline，001 §二十六）**：
+    sensing/link **positive / independent / anti-correlation** regime——
+    这才是论文主实验；
+  - **C5 — protocol robustness（001 §二十六）**：p_succ∈{1,0.95,0.9,0.8}、
+    control overhead、calibration mismatch、evidence correlation。
+    **论文四 Gate（001 §二十七）**：A 数学正确性 / B 机制必要性
+    （Phase-FG<Direct8 且 <Static Progressive）/ C 通信现实性（b_ctrl>0、
+    p_succ<1、anti-correlation 下仍成立）/ D 求解器质量（N=4 vs exact
+    CMDP）。**不再扩散 G0/G1/G2… 的几十个 Gate。**
 - **B1**（fading/packet errors）仍然最后。
 
 关键算术修正（003.md §8）：MVS-B 每 UAV evidence states =

@@ -14,14 +14,14 @@
 
 > **P1 口径修正（017 §一）**：P1-1 只报告 P(F=1|S_common=CONTINUE)（把 STOP 决策状态加入分母只会更低）；P1-2 ΔB_forced 改名 **gross forced-action cost**（非 causal extra cost）并按 episode 归一化；P1-3 dual-Q 回归升级 root + on-policy reachable + r=0/1/2/4 分层 × corner {(128,0.8),(512,1.2),(1024,2.0)}；emulate_d8 计数按真实循环数报告。
 
-> 生成时间: 2026-08-24 12:19:32   模式: FULL   N_CAL=600（@H=96），N_TEST=1600（@H∈(48, 96)），FULL 冻结（方案 A）
+> 生成时间: 2026-08-24 15:28:00   模式: FULL   N_CAL=600（@H=96），N_TEST=1600（@H∈(48, 96)），FULL 冻结（方案 A）
 
 ## 1. Invariant suite（017 §九 + P1-3）
 
 - **inv-2** q_fast vs generic dual-Q exact（017 §九、P1-3 新覆盖：root + on-policy reachable + r=0/1/2/4 分层 × 3 corners）：共 15085 个 (i,r2) 对，max|Δ|=0.000000000002（<1e-9 → PASS）。
 - **inv-1** ΣP(m'|x,a)=1（unnormalized 混合质量守恒）：15085 个 (state,action) 上 max|Σw−1|=0.000000000000（<1e-9 → PASS）。
 - **inv-5** π_FG|_{A_D8} ≡ π_D8（同 (ρ,η)=(512, 1.2)、同 world 逐样本一致）：100 条 episode（stratified，2×n_ep_check=100）lam/cost/N_tx/payload 全一致 → **PASS**（计数按真实循环数，P1-3/P2）。
-（4.0s）
+（4.1s）
 
 ## 2. Calibration（017 §三/§五：shared worlds、grid 冻结）
 
@@ -124,7 +124,7 @@
   - (256, 1.8)：Ê[B]=0.0000（差 36.880）→ INFEASIBLE
   - (256, 2.0)：Ê[B]=0.0000（差 36.880）→ INFEASIBLE
   注（018 §六 anti-post-hoc）：若 sensitivity（如 N_CAL=1200）改选 θ̂，**必须换全新 test seeds 重新认证**（当前 test 已可见）；若 θ̂ 不变，原 G2 test 保留。
-（213.5s；累计 221.0s）
+（221.8s；累计 229.3s）
 
 ## 3. Primary Gate @ H=96（017 §六/§八，θ̂ 冻结、test fresh）
 
@@ -144,7 +144,7 @@
   → **G2 PASS**。
   双方 FEASIBLE 且 U95(E[D])<0 ⇒ 统计证实 granularity 在 separately calibrated 下仍省 communication bits。
 
-（23.2s；累计 244.2s）
+（24.2s；累计 253.5s）
 
 ## 4. Secondary stress @ H=48（017 §四：同冻结 controller，诚实报告 operating-region boundary；不为 H=48 重新校准）
 
@@ -162,7 +162,7 @@
   → **G2 PASS**。
   双方 FEASIBLE 且 U95(E[D])<0 ⇒ 统计证实 granularity 在 separately calibrated 下仍省 communication bits。
 
-（19.0s；累计 263.2s）
+（19.8s；累计 273.3s）
 
 ## 5. Secondary diagnostics（017 §七）
 
@@ -221,11 +221,10 @@
 - **Primary H=96：G2 PASS**（双方 FEASIBLE=PASS（FEASIBLE/FEASIBLE），U95(E[D])=-1.1710，L95(E[D])=-9.4790）。
 - **Secondary H=48：G2 PASS**（双方 FEASIBLE=PASS（FEASIBLE/FEASIBLE），U95(E[D])=-2.9493）。
 
-> **论文正式表述（018 §八 收紧）**：Under separately calibrated QoS-dual controllers selected from the same pre-specified calibration grid and evaluated on fresh held-out trials, adaptive feedback granularity achieves statistically certified communication savings **relative to the calibrated Direct8 controller**（test 认证对象是 π̂_FG vs π̂_D8 单对，非整个 policy family，018 §八）。
+> **论文正式表述（001 §final 重定位 + 018 §八 收紧）**：本 G2 的 statistically certified savings 声明**限定于****homogeneous-link mechanism-validation special case**（001 §二十四：16+Δr 均匀成本、P_MD≤0.40 机制口径、planner 非瓶颈）——**不再作为论文最终 ISAC/通信主结论**；论文主 QoS 口径统一为 **matched detection：P_FA≤α ∧ P_D≥P_D,max(α)−ε_D**（默认 α=0.05、ε_D=0.01，001 §三），成本模型升级为 **link-aware c_{i,r→r'}=b_{0,i}+d_i(r,r')**（16+Δr 为 homogeneous special case，001 §六），hard budget 改为 **frame-window C_{U2U}(ω)≤C_max^{frame}**（001 §七）——**本 G2 数值与机制结论保留为 special-case evidence，论文主线移交 MVS-C**（001 §二十六：C0–C5 realignment）。
 
-- **B0.7-G2 定位（017 §final）**：separately calibrated QoS-dual policy-family certification。若 **G2 PASS**，论文核心 performance 主线闭环。
-- **B0.7-G3 = DualCPI Value-of-Complexity Gate（019 §6-§9，next）**：
-  主比较仅 **FG_base ↔ FG_DualCPI**（D8+DualCPI 只作 secondary diagnostic，019 §9——不做 FG/FG+CPI/D8/D8+CPI 四格扩散）；**双 Gate（019 §6）**：Gate A（performance，matched-QoS 同 G2）：D=B^{CPI}−B^{base}、U95(E[D])<−δ_G3；Gate B（practical relevance，独立统计不混入 A）：ΔN_Q（rollout worlds/decision）、ΔT_cpu、W_CPI=E[rollout worlds per decision] + 预注册预算 C_CPI≤C_max；δ_G3 默认 2.0 bits/episode = **minimum practically relevant communication saving（effect-size，≈5%·E[B^{base}]，019 §7）**——不是 algorithm-complexity 的代理（019 §5：2 communication bits ≠ planner complexity）。ADOPT ⟺ A 过 ∧ B 预算内 ∧ 无 QoS 退化；否则 NOT-ADOPTED → G2 结论即最终通信结论，不继续堆算法。
+- **B0.7-G2 定位（017 §final + 001 §二十四 重定位）**：separately calibrated QoS-dual policy-family certification —— **G2 数值与机制结论保留为 homogeneous-link mechanism-validation special case**（001 §二十四：16+Δr 均匀成本、P_MD≤0.40 机制口径、planner 非瓶颈）；**不再作为论文最终 ISAC/通信主结论**。论文主 QoS 统一为 **matched detection：P_FA≤α ∧ P_D≥P_D,max(α)−ε_D**（默认 α=0.05、ε_D=0.01，001 §三）；成本模型升级为 **link-aware c_{i,r→r'}=b_{0,i}+d_i(r,r')**（16+Δr 为 homogeneous special case，001 §六）；hard budget 改为 **frame-window C_{U2U}(ω)≤C_max^{frame}**（001 §三/§七）。
+- **B0.7-G3（DualCPI）＝ SUSPENDED（001 §二十五：planner 不是当前瓶颈）**：双 Gate 预注册文本（019 §6-§9）**存档保留**，仅在未来换 regime 且需要 certified planning 时启用，**不进当前路线**。**下一步 = MVS-C Architecture Realignment（001 §二十六：C0 semantic closure、C1 link-aware phase theorem、C2 phase-guided policy（N=4）、C3 N=8 homogeneous replay（migration Gate：必须复现本 G2 special-case 数值）、C4 N=8 heterogeneous U2U（论文 headline：positive/independent/anti-correlation regime）、C5 protocol robustness）**；**论文四 Gate（001 §二十七）**：A 数学正确性 / B 机制必要性（Phase-FG<Direct8 且 <Static Progressive）/ C 通信现实性（b_ctrl>0、p_succ<1、anti-correlation 下仍成立）/ D 求解器质量（N=4 vs exact CMDP）。
 
-总耗时: 347.8s
+总耗时: 360.0s
 
