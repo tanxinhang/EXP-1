@@ -1,0 +1,39 @@
+C2 audit fix (C2 review): reachable-profile count bug + matched-dialect
+diagnosis correction
+
+C2 review of the initial commit (fee5cfb) found 2 issues, fixed here; reports
+regenerated (SMOKE + FULL, deterministic numbers identical to fee5cfb except
+the corrected section-2 counts and matched note).
+
+(1) reachable_profile_count missed r=0 (empty-UAV) profiles: the recursion
+    only iterated the nonempty level list, so the branch "cost_add = 0 if
+    r == 0" was dead code (0 never appears in levels). Resulting counts were
+    wrong: H=48 returned 0 for both granularities (all-active min cost 68 >
+    48, but partially-active profiles like (4,4,0,0)=40 are reachable);
+    4-bit/H=96 returned 22^4=234,256 instead of 23^4=279,841; 8-bit/H=96
+    returned 278^4=5,972,816,656 instead of 279^4=6,059,221,281. Fixed by
+    including 0 in the levels iteration. Corrected: 8-bit H48/H96 =
+    464,817 / 6,059,221,281; 4-bit H48/H96 = 2,993 / 279,841.
+    Conclusion (8-bit exact oracle infeasible, Gate D oracle at 4-bit
+    granularity) is unchanged.
+
+(2) The matched-dialect diagnosis in fee5cfb claimed "epsilon_D=0.01
+    certification margin consumed by the CI" (statistical uncertifiability).
+    FULL data show the correct mechanism: at the U_FA<=0.05 edge the dual
+    controller family on the frozen grid tops out at P_D ~0.74-0.76 (best
+    calibration point (1024,1.8) U_MD=0.2836 -> P_D~0.72; (1024,1.6)
+    U_MD=0.2677 @ U_FA 0.0548) against target P_D>=0.8382 (beta=0.1618):
+    a ~0.08-0.10 mechanism-level gap caused by the stopping-budget trade
+    (H=96 = four 8-bit directs is the whole frame budget, and pi* at the
+    same theta spends only E[B]~44.5 ~ 2.8 tx, does not treat full fusion as
+    optimal - see Gate D rows). The "CI consumes eps_D margin" explanation
+    confused the full-fusion theoretical ceiling with the controller-
+    reachable operating point; revoked and replaced by the mechanism-level
+    statement. Verdict (matched INFEASIBLE at this scale/grid, fallback
+    theta-hat, mechanism surface = legacy beta=0.40) is unchanged in
+    substance but now has the correct explanation.
+
+Also corrected the README bullet to match (counts + matched diagnosis), and
+kept the fixed QoS denominators (n0/n1) and Gate-D comparison object
+(C_CMDP* = E_π*[B] via exact_policy_cost + oracle_decision) from the audit
+carried in the codebase before this commit.

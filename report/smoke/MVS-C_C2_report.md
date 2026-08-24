@@ -18,13 +18,13 @@
 
 ## 2. exact budgeted CMDP oracle 的粒度可行性（001 §二十一）
 
-- reachable z-state 数估计（profile 计数，不含 budget-layer 重复）：8-bit/H=96: 5972816656、8-bit/H=48: 0、4-bit/H=96: 234256、4-bit/H=48: 0
-- **结论**：8-bit 粒度 exact backward 不可行（H=96 已 ≥ 1e9）→ Gate D oracle 冻结在 **4-bit (1, 2, 4) 粒度**（234256，MVS-A ExactDP 规模）；8-bit 与 Direct8/Myopic 的机制比较走 MC（§3）。
+- reachable z-state 数估计（profile 计数，不含 budget-layer 重复）：8-bit/H=96: 6059221281、8-bit/H=48: 464817、4-bit/H=96: 279841、4-bit/H=48: 2993
+- **结论**：8-bit 粒度 exact backward 不可行（H=96 已 ≥ 1e9）→ Gate D oracle 冻结在 **4-bit (1, 2, 4) 粒度**（279841，MVS-A ExactDP 规模）；8-bit 与 Direct8/Myopic 的机制比较走 MC（§3）。
 
 ## 3. 机制比较（双口径：matched 主口径 / legacy mechanism 参考口径）
 
 > 017 §三：G2 注册的 (P_FA≤0.12, P_MD≤0.40) 是 mechanism-dialect；001 §三 的**matched detection**（α=0.05、P_MD≤1−P_D,max+ε_D）是 paper 主口径。C2 两个口径都跑：matched 是裁判口径（统计不可认证时如实报 UNRESOLVED，见下），legacy 供 granularity-vs-D8/Myopic 的机制方向性对照（与 G2 −5.33 同口径）。
-> **matched 统计不可认证诊断（C2 审计）**：N=4 弱感知下 P_D,max^q(0.05)=0.8482、目标 P_D≥0.8382（β=0.1618）；量化全融合实际可达 ~0.845-0.848 ⇒ P_D,max−P_D 余量 ~0.005-0.008，而 Wilson 95% 半宽 n=60 → ±0.036、n=120 → ±0.025 ⇒ **ε_D=0.01 的认证余量被 CI 消耗殆尽**：matched FEASIBLE 在该系统规模下**统计不可认证**（任何 θ 只会 UNCERTAIN/INFEASIBLE —— 不是搜索失败）。机制口径（β=0.40）余量 ~0.20 ≫ CI，是 C2 的可认证比较面。
+> **matched 口径机制层不可达（C2 审计修正）**：α=0.05 边（U_FA≤0.05）下该 dual 控制器族在冻结网格上的最佳 P_D 仅 ~0.74-0.76（FULL cal 中 (1024,1.8) U_MD=0.2836、(1024,1.6) U_MD=0.2677@U_FA 0.0548），目标 P_D≥0.8382（β=0.1618）差 ~0.08-0.10 —— 差距源于 stopping-budget 权衡（H=96 下 4×8-bit direct=96 即全预算，且 π* 在 同一 θ 也只花 E[B]≈44.5≈2.8 tx，不以全融合为最优，见 Gate D 行）。**早先『ε_D 余量被 CI 消耗』的表述机制错误（C2 review 撤销）**——把全融合理论上限误当成了控制器可达操作点；实际不可达是机制层/网格层的，不是统计层的。matched 在该规模/网格下如实 INFEASIBLE；机制比较面 = legacy（β=0.40）。
 
 ### 3.1 口径：matched（001 §三）（α=0.05、β 按粒度）
 - 校准 Phase-FG(8-bit)：
@@ -88,15 +88,15 @@
 ## 4. Gate D — 求解器质量：Phase-FG vs exact budgeted CMDP*（4-bit）
 
 > Gate D 的 θ 集合：固定 corners ((256, 1.2), (512, 1.2), (1024, 1.6)) + matched 口径下 Phase-FG(4-bit) 的 θ̂=(128, 2.0)（matched 分类 INFEASIBLE——非 FEASIBLE 时注明：θ-fixed 比较仍有效，但 θ̂ 不是认证可行点，仅作同 θ 求解器质量比对）。比较对象：CMDP* 的 E[B]（用 exact_policy_cost + oracle_decision，memo 已由 solve 预热）。
-- θ=(256, 1.2) H=48：CMDP* E[B]=26.875（V_lag=85.0 仅作 solve 证书；memo=3073、expansions=3073、0.0s）；Phase-FG exact C=27.125（rel=0.93%）、Myopic 26.875（0.00%）、Direct4 27.500（2.33%）
-- θ=(256, 1.2) H=96：CMDP* E[B]=34.569（V_lag=80.3 仅作 solve 证书；memo=607890、expansions=607890、15.5s）；Phase-FG exact C=29.896（rel=-13.52%）、Myopic 29.775（-13.87%）、Direct4 31.176（-9.82%）
+- θ=(256, 1.2) H=48：CMDP* E[B]=26.875（V_lag=85.0 仅作 solve 证书；memo=3073、expansions=3073、0.1s）；Phase-FG exact C=27.125（rel=0.93%）、Myopic 26.875（0.00%）、Direct4 27.500（2.33%）
+- θ=(256, 1.2) H=96：CMDP* E[B]=34.569（V_lag=80.3 仅作 solve 证书；memo=607890、expansions=607890、16.5s）；Phase-FG exact C=29.896（rel=-13.52%）、Myopic 29.775（-13.87%）、Direct4 31.176（-9.82%）
 - θ=(512, 1.2) H=48：CMDP* E[B]=29.438（V_lag=142.3 仅作 solve 证书；memo=3073、expansions=3073、0.0s）；Phase-FG exact C=29.812（rel=1.27%）、Myopic 29.438（0.00%）、Direct4 30.000（1.91%）
-- θ=(512, 1.2) H=96：CMDP* E[B]=38.712（V_lag=124.6 仅作 solve 证书；memo=607890、expansions=607890、15.3s）；Phase-FG exact C=36.877（rel=-4.74%）、Myopic 36.518（-5.67%）、Direct4 36.055（-6.86%）
-- θ=(1024, 1.6) H=48：CMDP* E[B]=30.938（V_lag=287.9 仅作 solve 证书；memo=3073、expansions=3073、0.0s）；Phase-FG exact C=31.062（rel=0.40%）、Myopic 32.500（5.05%）、Direct4 31.250（1.01%）
-- θ=(1024, 1.6) H=96：CMDP* E[B]=44.483（V_lag=234.3 仅作 solve 证书；memo=607890、expansions=607890、15.2s）；Phase-FG exact C=40.974（rel=-7.89%）、Myopic 43.109（-3.09%）、Direct4 40.121（-9.81%）
-- θ=(128, 2.0) H=48：CMDP* E[B]=24.500（V_lag=63.7 仅作 solve 证书；memo=3073、expansions=3073、0.0s）；Phase-FG exact C=0.000（rel=-100.00%）、Myopic 0.000（-100.00%）、Direct4 0.000（-100.00%）
-- θ=(128, 2.0) H=96：CMDP* E[B]=27.826（V_lag=62.4 仅作 solve 证书；memo=607890、expansions=607890、14.7s）；Phase-FG exact C=0.000（rel=-100.00%）、Myopic 0.000（-100.00%）、Direct4 0.000（-100.00%）
+- θ=(512, 1.2) H=96：CMDP* E[B]=38.712（V_lag=124.6 仅作 solve 证书；memo=607890、expansions=607890、16.8s）；Phase-FG exact C=36.877（rel=-4.74%）、Myopic 36.518（-5.67%）、Direct4 36.055（-6.86%）
+- θ=(1024, 1.6) H=48：CMDP* E[B]=30.938（V_lag=287.9 仅作 solve 证书；memo=3073、expansions=3073、0.1s）；Phase-FG exact C=31.062（rel=0.40%）、Myopic 32.500（5.05%）、Direct4 31.250（1.01%）
+- θ=(1024, 1.6) H=96：CMDP* E[B]=44.483（V_lag=234.3 仅作 solve 证书；memo=607890、expansions=607890、16.5s）；Phase-FG exact C=40.974（rel=-7.89%）、Myopic 43.109（-3.09%）、Direct4 40.121（-9.81%）
+- θ=(128, 2.0) H=48：CMDP* E[B]=24.500（V_lag=63.7 仅作 solve 证书；memo=3073、expansions=3073、0.1s）；Phase-FG exact C=0.000（rel=-100.00%）、Myopic 0.000（-100.00%）、Direct4 0.000（-100.00%）
+- θ=(128, 2.0) H=96：CMDP* E[B]=27.826（V_lag=62.4 仅作 solve 证书；memo=607890、expansions=607890、16.6s）；Phase-FG exact C=0.000（rel=-100.00%）、Myopic 0.000（-100.00%）、Direct4 0.000（-100.00%）
 - **Gate D 判决**：Phase-FG 相对 gap 最大值 1.27% ≤ 预注册阈值 10% → PASS（001 §二十七：D 良好则不再做 CPI）。注：H=96 行的 rel 为负是 **dual trade**（Phase-FG 以更高终端风险换更少 bits —— 同一 θ 下 Lagrangian 最优性由 V_lag 保证，Phase-FG 的 E[B]+E[R] ≥ V_lag 恒成立，负 rel 不是求解器缺陷），判决取 rel 的 max。
 
-总耗时: 81.1s
+总耗时: 88.6s
 

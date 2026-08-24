@@ -28,17 +28,19 @@ c_{i,r->r'} = b_{0,i} + d_i(r,r') = 16 + (r'-r)（001 §六，κ_i=1）；
 hard budget = frame-window C_{U2U}(ω) <= C_max^{frame}（H=48/96）；
 主 QoS = matched detection：P_FA<=α ∧ P_D>=P_D,max(α)-ε_D（α=0.05、
 ε_D=0.01，001 §三），P_D,max 用**精确量化全融合**（卷积，非连续近似）。
-8-bit 精确向后归纳在此 N=4 下 reachable 状态 ~4.6e9 ⇒ 不可行（本文档
-给出 profile 计数估计）；Gate D 的 oracle 在 {1,2,4} 粒度（23^4=279,841，
-MVS-A ExactDP 规模，可行）上做 ——两个粒度各自 apples-to-apples。
+8-bit 精确向后归纳在此 N=4 下 reachable z-state ≈ 279^4 = 6.06e9 ⇒ 不可行
+（本文档给出 profile 计数估计）；Gate D 的 oracle 在 {1,2,4} 粒度
+（23^4 = 279,841，MVS-A ExactDP 规模，可行）上做 ——两个粒度各自
+apples-to-apples。
 
-matched 口径统计不可认证诊断（C2 审计）：N=4 弱感知下 P_D,max^q(0.05)=0.8482
-⇒ 目标 P_D>=0.8382（β=0.1618）；量化全融合实际可达 ~0.845-0.848 ⇒
-P_D,max−P_D 余量 ~0.005-0.008，而 Wilson 95% 半宽 n=400 → ±0.035、n=800 →
-±0.025 ⇒ **ε_D=0.01 的认证余量被 CI 消耗殆尽**：matched FEASIBLE 在该系统
-规模下统计不可认证（任何 θ 都只会 UNCERTAIN/INFEASIBLE —— 不是搜索失败，
-是与 reference 的余量 < CI 半宽的固有事实）。机制口径（β=0.40）余量 ~0.20
-≫ CI，是 C2 的可认证比较面（017 §四 同口径）。
+matched 口径**机制层不可达**（C2 审计修正，撤销早先"CI 消耗 ε_D 余量"的
+错误表述）：α=0.05 边（U_FA≤0.05）下该 dual 控制器族在冻结网格上的最佳
+P_D 仅 ~0.74-0.76（FULL cal：(1024,1.8) U_MD=0.2836、(1024,1.6) U_MD=0.2677
+@U_FA 0.0548），目标 P_D≥0.8382（β=0.1618）差 ~0.08-0.10 —— 差距源于
+stopping-budget 权衡（H=96 下 4×8-bit direct=96 即全预算，且 π* 在同一 θ
+也只花 E[B]≈44.5≈2.8 tx，不以全融合为最优，见 Gate D 行）；把"量化全融合
+理论上限"当成"控制器可达操作点"是错误机制。matched 在该规模/网格下如实
+INFEASIBLE；机制比较面 = legacy（β=0.40，017 §四 同口径）。
 """
 from __future__ import annotations
 
@@ -454,6 +456,10 @@ def reachable_profile_count(N, levels, b0, H):
     """reachable z-state 数上界：profile (r_1..r_N) 满足 Σ_i (b0*[r_i>0] + r_i)
     <= H；每个 profile 的 message cell 组合 = Π_i 2^{r_i}。纯组合计数。"""
 
+    # 审计修正（C2 review）：levels 里必须显式包含 r=0（空 UAV、cost 0、
+    # cells 1）——此前只遍历 {1,2,4,8}/{1,2,4} 导致"全激活 profile 专属"计数
+    # （4-bit/H=96 错得 22^4=234,256 而非 23^4=279,841；H=48 全激活最小成本
+    # 68>48 ⇒ 错得 0，可 (4,4,∅,∅)=40 等部分激活 profile 明明可达）。
     def rec(acc, rem, li):
         nonlocal total
         if li == N:
@@ -462,7 +468,7 @@ def reachable_profile_count(N, levels, b0, H):
                 cells *= 1 if r == 0 else 2 ** r
             total += cells
             return
-        for r in levels:
+        for r in (0,) + tuple(levels):
             cost_add = 0 if r == 0 else (b0 + r)
             if cost_add <= rem:
                 rec(acc + [r], rem - cost_add, li + 1)
@@ -805,14 +811,16 @@ def main():
         "C2 两个口径都跑：matched 是裁判口径（统计不可认证时如实报 UNRESOLVED，"
         "见下），legacy 供 granularity-vs-D8/Myopic 的机制方向性对照（与 G2 "
         "−5.33 同口径）。")
-    out("> **matched 统计不可认证诊断（C2 审计）**：N=4 弱感知下 "
-        f"P_D,max^q(0.05)={pd4:.4f}、目标 P_D≥{pd4 - EPS_D:.4f}（β="
-        f"{BETA4:.4f}）；量化全融合实际可达 ~0.845-0.848 ⇒ P_D,max−P_D 余量 "
-        f"~0.005-0.008，而 Wilson 95% 半宽 n={n_cal} → ±0.036、n={n_test} → "
-        "±0.025 ⇒ **ε_D=0.01 的认证余量被 CI 消耗殆尽**：matched FEASIBLE 在"
-        "该系统规模下**统计不可认证**（任何 θ 只会 UNCERTAIN/INFEASIBLE —— "
-        "不是搜索失败）。机制口径（β=0.40）余量 ~0.20 ≫ CI，是 C2 的可认证"
-        "比较面。")
+    out("> **matched 口径机制层不可达（C2 审计修正）**：α=0.05 边（U_FA≤0.05）"
+        "下该 dual 控制器族在冻结网格上的最佳 P_D 仅 ~0.74-0.76（FULL cal 中 "
+        "(1024,1.8) U_MD=0.2836、(1024,1.6) U_MD=0.2677@U_FA 0.0548），目标 "
+        f"P_D≥{pd4 - EPS_D:.4f}（β={BETA4:.4f}）差 ~0.08-0.10 —— 差距源于 "
+        "stopping-budget 权衡（H=96 下 4×8-bit direct=96 即全预算，且 π* 在 "
+        "同一 θ 也只花 E[B]≈44.5≈2.8 tx，不以全融合为最优，见 Gate D 行）。"
+        "**早先『ε_D 余量被 CI 消耗』的表述机制错误（C2 review 撤销）**——"
+        "把全融合理论上限误当成了控制器可达操作点；实际不可达是机制层/网格"
+        "层的，不是统计层的。matched 在该规模/网格下如实 INFEASIBLE；机制"
+        "比较面 = legacy（β=0.40）。")
     H_cal, L_cal = sample_set(2 * n_cal, SEED_CAL, model4)
     H_t96, L_t96 = sample_set(2 * n_test, SEED_TEST + 1000, model4)
     H_t48, L_t48 = sample_set(2 * n_test, SEED_TEST + 2000, model4)

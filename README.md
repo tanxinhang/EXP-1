@@ -541,13 +541,19 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
   sandwich（Q^{global-2} ≤ Q^{self-2} ≤ Q^{prog} ≤ Q^{(1)}，310 检查 0 矛盾）、
   T3 theory-certified pruning 自洽（g≥0 ⇒ Q_prog≥Q_dir，327 检查 0 矛盾）、
   T4 复杂度 O(2N)（每决策评估动作 max 8 ≤ 2N，full-FG max 16 = N|R|）。**oracle
-  粒度可行性**：8-bit exact backward 不可行（reachable z-state 估计 5.97e9 @
+  粒度可行性**：8-bit exact backward 不可行（reachable z-state 估计 **279⁴ ≈ 6.06e9** @
   H=96，与 8-bit 精确卷积参考 256⁴ 同源爆炸）→ Gate D oracle 冻结在
-  **{1,2,4} 粒度**（23⁴=234,256，MVS-A ExactDP 规模，14–15s/θ 可解）。**双口径
-  机制比较**：(a) **matched（001 §三）统计不可认证**——N=4 弱感知下
-  P_D,max^q(0.05)=0.8482、目标 P_D≥0.8382，P_D,max−P_D 余量 ~0.005-0.008 <
-  Wilson 95% 半宽（n=800 → ±0.025），**ε_D=0.01 认证余量被 CI 消耗殆尽**（C2
-  诊断，非搜索失败）；(b) **legacy mechanism（017 §四）全部 FEASIBLE**：
+  **{1,2,4} 粒度**（23⁴=279,841，MVS-A ExactDP 规模，14–15s/θ 可解）。**双口径
+  机制比较**：(a) **matched（001 §三）机制层不可达**——α=0.05 边（U_FA≤0.05）
+   下该 dual 族冻结网格上最佳 P_D 仅 ~0.74-0.76（FULL cal (1024,1.8)
+   U_MD=0.2836），目标 P_D≥0.8382（β=0.1618）差 ~0.08-0.10，源于
+   **stopping-budget 权衡**（H=96 下 4×8-bit direct=96 即全预算，π* 同 θ 也仅
+   E[B]≈44.5≈2.8 tx，不以全融合为最优，见 Gate D 行）——**早先“ε_D 余量被 CI
+   消耗”是错误机制（C2 review 撤销）**，不可达是机制/网格层而非统计层；
+   matched 在该规模下如实 INFEASIBLE）；
+  
+  
+  (b) **legacy mechanism（017 §四）全部 FEASIBLE**：
   @H=96 的 E[B]：**Phase-FG(8-bit)=27.66、Direct8=29.17（paired E[D]=−1.51，
   Hoeffding U95=4.37 未过 0 → 方向性未认证）、Myopic-FG=22.35（Phase-FG 比
   Myopic 贵 +5.31，未认证）**——granularity-vs-D8 的点估计方向在 N=4 成立但
