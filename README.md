@@ -413,6 +413,8 @@ python run_mvsb06.py         # B0.6 matched-QoS gate（约 25–40 分钟）
 python run_mvsb06.py --map   # B0.6 + b_setup regime map（secondary，约 30–50 分钟）
 python run_mvsb07g2.py       # B0.7-G2 separately calibrated QoS-dual certification（017；FULL 冻结 N_CAL=600/N_TEST=1600，约 15–30 分钟）
 python run_mvsc01.py         # MVS-C C0+C1 semantic closure + link-aware phase theorem 验证（001 §二十六.0-1，约 <1 分钟）
+python run_mvsc02.py         # MVS-C C2 phase-guided policy + exact budgeted-CMDP oracle（Gate D；FULL 约 8 分钟）
+python run_mvsc02.py --smoke # C2 冒烟（约 1.5 分钟）
 python test_regressions.py   # regression suite（约 5–7 分钟；运行结束打印 all checks PASS）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
@@ -532,6 +534,29 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
   已同步修复硬编码 N_UAV），belief canonical z-state / log-sigmoid 登记）；
   **C1 数值验证 PASS**（五分布，情形 A/B/C 全分支 + κ=1 退化复现 013 原定理：
   b* 解析=暴力扫描、∂⁺g(b)≡P(Y>b) 成立；报告 `report/MVS-C_C0C1_validation.md`）。
+- **MVS-C C2（依据 advice/001.md §二十六.2-§二十六.3 / §九-§十四 / §二十七 Gate D）**：
+  **phase-guided conditional-refinement policy（N=4 先行）+ exact budgeted-CMDP
+  oracle**（`run_mvsc02.py`，SMOKE+FULL 双报告）。**理论 Gate 全 PASS**：T1
+  支撑恒等式（013 §1 on reachable states，327 检查 0 偏差）、T2 cond-refinement
+  sandwich（Q^{global-2} ≤ Q^{self-2} ≤ Q^{prog} ≤ Q^{(1)}，310 检查 0 矛盾）、
+  T3 theory-certified pruning 自洽（g≥0 ⇒ Q_prog≥Q_dir，327 检查 0 矛盾）、
+  T4 复杂度 O(2N)（每决策评估动作 max 8 ≤ 2N，full-FG max 16 = N|R|）。**oracle
+  粒度可行性**：8-bit exact backward 不可行（reachable z-state 估计 5.97e9 @
+  H=96，与 8-bit 精确卷积参考 256⁴ 同源爆炸）→ Gate D oracle 冻结在
+  **{1,2,4} 粒度**（23⁴=234,256，MVS-A ExactDP 规模，14–15s/θ 可解）。**双口径
+  机制比较**：(a) **matched（001 §三）统计不可认证**——N=4 弱感知下
+  P_D,max^q(0.05)=0.8482、目标 P_D≥0.8382，P_D,max−P_D 余量 ~0.005-0.008 <
+  Wilson 95% 半宽（n=800 → ±0.025），**ε_D=0.01 认证余量被 CI 消耗殆尽**（C2
+  诊断，非搜索失败）；(b) **legacy mechanism（017 §四）全部 FEASIBLE**：
+  @H=96 的 E[B]：**Phase-FG(8-bit)=27.66、Direct8=29.17（paired E[D]=−1.51，
+  Hoeffding U95=4.37 未过 0 → 方向性未认证）、Myopic-FG=22.35（Phase-FG 比
+  Myopic 贵 +5.31，未认证）**——granularity-vs-D8 的点估计方向在 N=4 成立但
+  统计未认证（C2 诚实口径；机制主比较留 C4/N=8）。**Gate D PASS**：Phase-FG
+  与 exact CMDP* 通信成本在全部冻结 θ 下 rel 最大 +1.27%（H=48 行，≤10% 预注册
+  阈值）；H=96 行 rel 为负（−4.7…−13.5%）是 **dual trade**（Phase-FG 以更高终端
+  risk 换更少 bits，Lagrangian 最优性由 V_lag 保证）——求解器质量认证成立，
+  **不再做 CPI**（001 §二十七）。报告：`report/MVS-C_C2_report.md`（FULL）、
+  `report/smoke/MVS-C_C2_report.md`。
   **下一步（001 §二十六）＝ MVS-C Architecture Realignment**：
   - **C0 — semantic closure**：论文主 QoS 统一为 **matched detection
     P_FA≤α ∧ P_D≥P_D,max(α)−ε_D**（默认 α=0.05、ε_D=0.01，001 §三；
