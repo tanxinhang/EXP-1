@@ -312,12 +312,16 @@
   回答 017 §二 主问题 = FG 胜**（E[B|H0]/E[B|H1] 两 hypothesis 均省，
   非平均掩盖）。**sensitivity（018 §四/§五 收紧；runner 已改为扫描所有
   Ê_cal[B] < Ê_cal[B_{θ̂}] 的 challenger 并逐个分类）**：FG@(128,0.8) 是
-  **cheaper + UNCERTAIN challenger**（U95(P_FA)=0.1229 仅超 0.12）——
+  **material + UNCERTAIN challenger**（U95(P_FA)=0.1229 仅超 0.12，
+  Ê[B] 差 ≈9.6 bits/episode——**material**，019 §4）——
   “may potentially select a lower-cost FG controller; this requires an
-  independent sensitivity calibration”（018 §五，不断言“只会加大”）；D8
-  更低成本候选均硬 INFEASIBLE（ρ=128 ⇒ P_MD≈1.0）；**D8@(256,0.8) vs
-  (256,1.0) 仅差 0.02 bit/episode ⇒ θ̂_D8 是 empirical minimizer**（018
-  §七 near-tie）。
+  independent sensitivity calibration”（019 §5，不断言“只会加大”；
+  **018/019：G2 冻结，不再跑 sensitivity，留作 limitation/sensitivity
+  note**）；另有 **FG@(256,1.4) 是 numerical near-tie challenger**
+  （Ê[B] 差仅 0.0017 bit/episode，无实践意义，不值得为它改 policy，
+  019 §4）；D8 更低成本候选均硬 INFEASIBLE（ρ=128 ⇒ P_MD≈1.0）；
+  **D8@(256,0.8) vs (256,1.0) 仅差 0.02 bit/episode ⇒ θ̂_D8 是 empirical
+  minimizer**（018 §七 near-tie）。
   论文表述（018 §八 收紧）：Under separately calibrated QoS-dual
   controllers selected from the same pre-specified calibration grid and
   evaluated on fresh held-out trials, adaptive feedback granularity
@@ -503,7 +507,9 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
   performance 主线闭环**（先证 granularity 本身成立，016 §6 顺序）；
 - **B0.7-G2r（018 §十五 credibility closure，已完成）**：不改主 Gate 数值，
   只修文档/诊断——**G3 预注册符号修正（P0，018 §二）**；rho 明确为
-  **effective posterior risk scale**（018 §三 方案 A，数值不变）；sensitivity
+  **conditional-error Lagrange 的 effective multiplier**（\barλ_M=λ_M/π_1、
+  \barλ_F=λ_F/π_0；代码即 exact parameterization，无“乘 2”步骤，019 §2）；
+  sensitivity
   改为 **challenger 集合扫描**（E_cal[B]<E_cal[B_theta-hat] 逐个分类，018 §四）；
   **D8 (256,0.8) vs (256,1.0) near-tie => theta-hat_D8 是 empirical minimizer**
   （018 §七）；删“gross forced cost 是 leakage 上界”暗示（018 §九，强证据
@@ -512,24 +518,32 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
   controller**（018 §八）；“−5.33 全部来自 granularity”限定为 **for the
   selected equal-theta controllers in this run**（018 §七）。runner 同文件，
   报告重生成（数值与 G2 一致）。
-- **B0.7-G3（016 §5/§15-5，**预注册 Gate（018 §二 符号已修正）**，next）**：把 DualCPI
-  certificate 重构为与当前 dual objective（R_{ρ,η}，017 §二）一致，重新
-  获得 certified planning 含义；**定位（017 final）：G3 是“是否值得纳入
-  主算法”的 Gate，不是必做性能增强**。**预注册判定规则（跑 G3 前冻结，
-  test 完全 fresh，跑后不临场改动）**：
-  1. base = G2 冻结的 θ̂_FG/θ̂_D8 one-step controllers（G2 的 CPI OFF 保持）；
-  2. 主判定（**018 §二 符号修正**；matched-QoS 同 G2 口径：双方 test
-     FEASIBLE 才比 bit）：**D = B^{CPI} − B^{base}**（沿用 G2“新方法 −
-     baseline”记号），**U95(E[D]) < −ε_G3**，默认 **ε_G3 = 2.0
-     bits/episode**（U95 上界 < −2 ⇒ 最坏可信情形也省 ≥2 bits/episode
-     才 ADOPT；等价写法 Δ=B^{base}−B^{CPI}、L95(E[Δ])>ε_G3；杜绝
-     “DualCPI 更贵却 ADOPT”的符号反转——018 P0）；
-  3. 四种结局：**ADOPT**（主判定过、无 QoS 退化）/ **NOT-ADOPTED**（Δ 不足
-     或 bit/QoS UNRESOLVED——不改算法、不重调参）→ 论文主线以 **G2 封板** /
-     QoS-INFEASIBLE（+DualCPI 引入 base 不可行）→ NOT-ADOPTED；
-  4. 若 NOT-ADOPTED：DualCPI 不进主算法，G2 结论即论文最终通信结论，不再
-     堆 planner 复杂度（避免 017 final 警告的“跑回复杂 planner/sample-
-     complexity 工程”）；
+- **B0.7-G3 = DualCPI Value-of-Complexity Gate（016 §5/§15-5 定义；
+  **预注册（018 §二 符号已修正）；019 §6-§9 双 Gate 设计**，next）**：
+  把 DualCPI certificate 重构为与当前 dual objective（R_{ρ,η}）一致；
+  **主比较仅 FG_base ↔ FG_DualCPI**（D8+DualCPI 只作 secondary
+  diagnostic，019 §9——不做 FG/FG+CPI/D8/D8+CPI 四格扩散）；G3 回答
+  “在已成立的 FG 上，certified planning 是否还提供足够独立收益”（019
+  §9 主问题限定）。**预注册双 Gate（跑前冻结、test 完全 fresh、跑后不
+  临场改动）**：
+  1. base = G2 冻结的 θ̂_FG one-step controller（CPI OFF 保持）；
+  2. **Gate A — performance**（matched-QoS 同 G2：双方 test FEASIBLE 才
+     比 bit）：**D = B^{CPI} − B^{base}**，**U95(E[D]) < −δ_G3**，默认
+     **δ_G3 = 2.0 bits/episode = minimum practically relevant
+     communication saving**（**effect-size threshold，≈5%·E_cal[B^{base}]，
+     019 §7**）——**不是 algorithm-complexity 的代理**（019 §5：2
+     communication bits ≠ planner complexity）；等价 L95(E[B^{base}] −
+     E[B^{CPI}]) > δ_G3；
+  3. **Gate B — practical relevance（独立统计，不混入 Gate A）**：报告
+     ΔN_Q（rollout worlds/decision）、ΔT_cpu、以及在线 sampling 的
+     W_CPI = E[rollout worlds per decision]；预注册复杂度预算
+     **C_CPI ≤ C_max**；
+  4. **结局**：**ADOPT** ⟺ Gate A 过 ∧ Gate B 预算内 ∧ 无 QoS 退化；
+     **NOT-ADOPTED**（Gate A 不过 / 预算超 / bit-QoS UNRESOLVED——不改
+     算法、不重调参）→ 论文主线以 **G2 封板**；QoS-INFEASIBLE →
+     NOT-ADOPTED；
+  5. 若 NOT-ADOPTED：DualCPI 不进主算法，G2 结论即论文最终通信结论，
+     不再堆 planner 复杂度（019 final）。
 - **B1**（fading/packet errors）仍然最后。
 
 关键算术修正（003.md §8）：MVS-B 每 UAV evidence states =

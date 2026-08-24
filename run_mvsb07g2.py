@@ -45,11 +45,12 @@ bit 用 fixed-N one-sided paired Hoeffding（D=B^FG-B^D8 in [-H,H]，分布
 命名（017 §三）：实验对象是 **separately calibrated one-step QoS-dual
 controllers**（不是 optimized/globally optimized）。
 
-018 §三（方案 A，仅文档）：ρ 定义为 **effective posterior risk scale**
-（= 已吸收 prior 归一化的尺度，理论表达为 \barλ_M=λ_M/π_1、\barλ_F=λ_F/π_0）；
-当前 π_0=π_1=0.5 ⇒ 条件错误率 Lagrange 的 R_exact=min{(λ_M/π_1)p,
-(λ_F/π_0)(1−p)}=2·R_code ⇒ 仅统一缩放 2 倍，不改变 θ̂ 选择次序/可行性
-⇒ **数值与 G2 结论不变**（016 §9 原意即 \barλ 参数化，代码与 test 数字不动）。
+018 §三 + 019 §2（方案 A，仅文档）：ρ 直接定义为 **conditional-error
+Lagrange 的 effective multiplier**：\barλ_M=λ_M/π_1、\barλ_F=λ_F/π_0，
+参数化 ρ=\barλ_M、ρe^η=\barλ_F。由此 terminal Bayes risk 本来就是
+R_{ρ,η}(x)=min{ρ·p, ρe^η(1−p)} —— **代码即 exact effective-multiplier
+parameterization**（根本不需要“乘 2/统一缩放”步骤，019 §2：R→2R 而
+c_a 不缩放会改变 stopping condition，原表述不严格）。数值与 G2 结论不变。
 
 Secondary diagnostics（017 §七）：
   (1) E[B|H0], E[B|H1] 分别报告；
@@ -112,6 +113,9 @@ ETA_GRID = (0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0)
 CORNER_THETAS = ((128, 0.8), (512, 1.2), (1024, 2.0))
 # G1r 冻结的公共停止参考 (lambda_M=512, eta_star=1.2) —— 017 §一 审计口径
 REF_THETA = (512, 1.2)
+# 019 §4：challenger 的 material vs numerical-near-tie 阈值（bit/episode；
+# (256,1.4) 差 0.0017 为 near-tie，(128,0.8) 差 ≈9.6 为 material）
+MAT_EP = 0.05
 
 # FULL 冻结（017 §五/§六 方案 A）：N_CAL=600/hyp @ H=96，N_TEST=1600/hyp
 FULL_N_CAL = 600
@@ -893,16 +897,25 @@ def main():
                 f"Ê_cal[B_θ̂={ts}]={fmt(eb_hat)} 的 challenger ⇒ θ̂ 即族内"
                 f"最小成本可行选择。")
             continue
-        out(f"- sensitivity（018 §四：challenger 集合 C_{mode} = {{θ: "
-            f"Ê_cal[B_θ] < Ê_cal[B_{{θ̂_{mode}}}]={fmt(eb_hat)}}}，逐个分类；"
-            f"重点是 **cheaper + UNCERTAIN** challenger）：")
+        out(f"- sensitivity（018 §四 + 019 §4 口径：challenger 集合 C_{mode} "
+            f"= {{θ: Ê_cal[B_θ] < Ê_cal[B_{{θ̂_{mode}}}]={fmt(eb_hat)}}}，逐个"
+            f"分类；**material vs numerical-near-tie**：Ê[B] 差 ≥ "
+            f"{fmt(MAT_EP)} bit/episode 为 material、< {fmt(MAT_EP)} 为 "
+            f"near-tie——diagnostic only，不改 G2 Gate，019 §4/§8）")
         for (th, s) in sorted(chall,
                               key=lambda kv: (kv[1]["eb"], kv[0][0], kv[0][1])):
             cls = classify_qos(s["kfa"], s["kmd"], s["n0"])
-            mark = (" ⚠ cheaper+UNCERTAIN（需 sensitivity 复核，018 §四）"
-                    if cls == "UNCERTAIN" else "")
-            out(f"  - ({th[0]}, {fmt(th[1],1)})：分类 {cls}，"
-                f"Ê[B]={fmt(s['eb'])}{mark}")
+            gap = eb_hat - s["eb"]
+            grade = "material" if gap >= MAT_EP else "numerical near-tie"
+            if cls == "UNCERTAIN" and grade == "material":
+                mark = " ⚠ material+UNCERTAIN（需独立 sensitivity 复核，019 §4）"
+            elif cls == "UNCERTAIN":
+                mark = (f" ⚠ near-tie+UNCERTAIN（差仅 {fmt(gap,3)} "
+                        f"bit/episode，无实践意义——不值得为它改 policy，019 §4）")
+            else:
+                mark = ""
+            out(f"  - ({th[0]}, {fmt(th[1],1)})：Ê[B]={fmt(s['eb'])}"
+                f"（差 {fmt(gap,3)}）→ {cls}{mark}")
         out("  注（018 §六 anti-post-hoc）：若 sensitivity（如 N_CAL=1200）"
             "改选 θ̂，**必须换全新 test seeds 重新认证**（当前 test 已可见）；"
             "若 θ̂ 不变，原 G2 test 保留。")
@@ -991,11 +1004,13 @@ def main():
             out("  - θ̂ 缺失 → 不分离。")
         if (theta_star["FG"] and theta_star["D8"]
                 and theta_star["FG"] == theta_star["D8"]):
-            out("  - **注（017 §七 通道分离）**：θ̂_FG=θ̂_D8 ⇒ operating-point "
-                "通道为 0，E[D] 全部归因于 action-space granularity（同一 "
-                "dual operating point 下 FG 严格更省）——016 §8 的 "
-                "policy-class 包含关系（Π_D8⊆Π_FG）在该 operating point "
-                "上的经验实现。")
+            out("  - **注（019 §3 收紧；同步 README 口径）**：对本次 run 选出的等 θ"
+                " 控制器（θ̂_FG=θ̂_D8），两者唯一代码差异是 admissible "
+                "evidence-acquisition action space ⇒ 观测 test gap 归因于该差异"
+                "（**经验归因，限定于该对控制器**）；**policy-class 包含关系"
+                "（Π_D8⊆Π_FG ⇒ J*_FG≤J*_D8，016 §8）是独立的理论陈述，"
+                "不与本次 empirical gap 直接绑定**（019 §3：两者不可混称为"
+                "“经验实现”）。")
     out("")
 
     # --------------------------- 6. forced-continuation robustness（017 §一）
@@ -1074,9 +1089,19 @@ def main():
     out("")
     out("- **B0.7-G2 定位（017 §final）**：separately calibrated QoS-dual "
         "policy-family certification。若 **G2 PASS**，论文核心 performance "
-        "主线闭环；G3（DualCPI 是否还有独立增益）应变成“是否值得纳入主算法”"
-        "的 Gate，而不是必做的性能增强——避免系统从“反馈粒度这一核心科学问题”"
-        "跑回复杂 planner/sample-complexity 工程。")
+        "主线闭环。\n"
+        "- **B0.7-G3 = DualCPI Value-of-Complexity Gate（019 §6-§9，next）**：\n"
+        "  主比较仅 **FG_base ↔ FG_DualCPI**（D8+DualCPI 只作 secondary "
+        "diagnostic，019 §9——不做 FG/FG+CPI/D8/D8+CPI 四格扩散）；"
+        "**双 Gate（019 §6）**：Gate A（performance，matched-QoS 同 G2）："
+        "D=B^{CPI}−B^{base}、U95(E[D])<−δ_G3；Gate B（practical relevance，"
+        "独立统计不混入 A）：ΔN_Q（rollout worlds/decision）、ΔT_cpu、"
+        "W_CPI=E[rollout worlds per decision] + 预注册预算 C_CPI≤C_max；"
+        "δ_G3 默认 2.0 bits/episode = **minimum practically relevant "
+        "communication saving（effect-size，≈5%·E[B^{base}]，019 §7）**——"
+        "不是 algorithm-complexity 的代理（019 §5：2 communication bits "
+        "≠ planner complexity）。ADOPT ⟺ A 过 ∧ B 预算内 ∧ 无 QoS 退化；"
+        "否则 NOT-ADOPTED → G2 结论即最终通信结论，不继续堆算法。")
     out("")
     out(f"总耗时: {time.time() - t_start:.1f}s")
     out("")

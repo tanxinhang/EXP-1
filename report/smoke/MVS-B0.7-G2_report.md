@@ -14,7 +14,7 @@
 
 > **P1 口径修正（017 §一）**：P1-1 只报告 P(F=1|S_common=CONTINUE)（把 STOP 决策状态加入分母只会更低）；P1-2 ΔB_forced 改名 **gross forced-action cost**（非 causal extra cost）并按 episode 归一化；P1-3 dual-Q 回归升级 root + on-policy reachable + r=0/1/2/4 分层 × corner {(128,0.8),(512,1.2),(1024,2.0)}；emulate_d8 计数按真实循环数报告。
 
-> 生成时间: 2026-08-24 10:55:04   模式: SMOKE   N_CAL=60（@H=96），N_TEST=120（@H∈(48, 96)），SMOKE
+> 生成时间: 2026-08-24 12:26:02   模式: SMOKE   N_CAL=60（@H=96），N_TEST=120（@H∈(48, 96)），SMOKE
 
 ## 1. Invariant suite（017 §九 + P1-3）
 
@@ -101,7 +101,7 @@
 | 1024 | 2.0 | 0.0886 | 0.5098 | UNCERTAIN | — |
 
 - inv-3/inv-4（逐 episode 断言：B=16·N_tx+B_payload、B≤H）：calibration 全 56 次 θ-run 中 violations=0 → **PASS**。
-（29.3s；累计 33.5s）
+（21.9s；累计 26.0s）
 
 ## 3. Primary Gate @ H=96（017 §六/§八，θ̂ 冻结、test fresh）
 
@@ -111,7 +111,7 @@
 
 > **Gate（017 §八）**：QoS-UNRESOLVED / INFEASIBLE。calibration 无可行 θ̂ ⇒ 017 §八：QoS-UNRESOLVED / INFEASIBLE（不能比较 bit）。
 
-（0.0s；累计 33.5s）
+（0.0s；累计 26.0s）
 
 ## 4. Secondary stress @ H=48（017 §四：同冻结 controller，诚实报告 operating-region boundary；不为 H=48 重新校准）
 
@@ -119,7 +119,7 @@
 
 > **Gate（017 §八）**：QoS-UNRESOLVED / INFEASIBLE。calibration 无可行 θ̂ ⇒ 017 §八：QoS-UNRESOLVED / INFEASIBLE（不能比较 bit）。
 
-（0.0s；累计 33.5s）
+（0.0s；累计 26.0s）
 
 ## 5. Secondary diagnostics（017 §七）
 
@@ -167,7 +167,9 @@
 - **Secondary H=48：QoS-UNRESOLVED / INFEASIBLE**（双方 FEASIBLE=FAIL（NO-FEASIBLE-θ̂(CAL)/NO-FEASIBLE-θ̂(CAL)），U95(E[D])=inf）。
 
 
-- **B0.7-G2 定位（017 §final）**：separately calibrated QoS-dual policy-family certification。若 **G2 PASS**，论文核心 performance 主线闭环；G3（DualCPI 是否还有独立增益）应变成“是否值得纳入主算法”的 Gate，而不是必做的性能增强——避免系统从“反馈粒度这一核心科学问题”跑回复杂 planner/sample-complexity 工程。
+- **B0.7-G2 定位（017 §final）**：separately calibrated QoS-dual policy-family certification。若 **G2 PASS**，论文核心 performance 主线闭环。
+- **B0.7-G3 = DualCPI Value-of-Complexity Gate（019 §6-§9，next）**：
+  主比较仅 **FG_base ↔ FG_DualCPI**（D8+DualCPI 只作 secondary diagnostic，019 §9——不做 FG/FG+CPI/D8/D8+CPI 四格扩散）；**双 Gate（019 §6）**：Gate A（performance，matched-QoS 同 G2）：D=B^{CPI}−B^{base}、U95(E[D])<−δ_G3；Gate B（practical relevance，独立统计不混入 A）：ΔN_Q（rollout worlds/decision）、ΔT_cpu、W_CPI=E[rollout worlds per decision] + 预注册预算 C_CPI≤C_max；δ_G3 默认 2.0 bits/episode = **minimum practically relevant communication saving（effect-size，≈5%·E[B^{base}]，019 §7）**——不是 algorithm-complexity 的代理（019 §5：2 communication bits ≠ planner complexity）。ADOPT ⟺ A 过 ∧ B 预算内 ∧ 无 QoS 退化；否则 NOT-ADOPTED → G2 结论即最终通信结论，不继续堆算法。
 
-总耗时: 37.4s
+总耗时: 28.9s
 

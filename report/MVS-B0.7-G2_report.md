@@ -14,14 +14,14 @@
 
 > **P1 口径修正（017 §一）**：P1-1 只报告 P(F=1|S_common=CONTINUE)（把 STOP 决策状态加入分母只会更低）；P1-2 ΔB_forced 改名 **gross forced-action cost**（非 causal extra cost）并按 episode 归一化；P1-3 dual-Q 回归升级 root + on-policy reachable + r=0/1/2/4 分层 × corner {(128,0.8),(512,1.2),(1024,2.0)}；emulate_d8 计数按真实循环数报告。
 
-> 生成时间: 2026-08-24 10:44:05   模式: FULL   N_CAL=600（@H=96），N_TEST=1600（@H∈(48, 96)），FULL 冻结（方案 A）
+> 生成时间: 2026-08-24 12:19:32   模式: FULL   N_CAL=600（@H=96），N_TEST=1600（@H∈(48, 96)），FULL 冻结（方案 A）
 
 ## 1. Invariant suite（017 §九 + P1-3）
 
 - **inv-2** q_fast vs generic dual-Q exact（017 §九、P1-3 新覆盖：root + on-policy reachable + r=0/1/2/4 分层 × 3 corners）：共 15085 个 (i,r2) 对，max|Δ|=0.000000000002（<1e-9 → PASS）。
 - **inv-1** ΣP(m'|x,a)=1（unnormalized 混合质量守恒）：15085 个 (state,action) 上 max|Σw−1|=0.000000000000（<1e-9 → PASS）。
 - **inv-5** π_FG|_{A_D8} ≡ π_D8（同 (ρ,η)=(512, 1.2)、同 world 逐样本一致）：100 条 episode（stratified，2×n_ep_check=100）lam/cost/N_tx/payload 全一致 → **PASS**（计数按真实循环数，P1-3/P2）。
-（4.4s）
+（4.0s）
 
 ## 2. Calibration（017 §三/§五：shared worlds、grid 冻结）
 
@@ -99,32 +99,32 @@
 | 1024 | 2.0 | 0.0408 | 0.4632 | UNCERTAIN | — |
 
 - inv-3/inv-4（逐 episode 断言：B=16·N_tx+B_payload、B≤H）：calibration 全 56 次 θ-run 中 violations=0 → **PASS**。
-- sensitivity（018 §四：challenger 集合 C_FG = {θ: Ê_cal[B_θ] < Ê_cal[B_{θ̂_FG}]=31.7975}，逐个分类；重点是 **cheaper + UNCERTAIN** challenger）：
-  - (128, 1.0)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (128, 1.2)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (128, 1.4)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (128, 1.6)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (128, 1.8)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (128, 2.0)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (256, 1.8)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (256, 2.0)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (128, 0.8)：分类 UNCERTAIN，Ê[B]=22.1792 ⚠ cheaper+UNCERTAIN（需 sensitivity 复核，018 §四）
-  - (256, 1.6)：分类 INFEASIBLE，Ê[B]=31.5517
-  - (256, 1.4)：分类 UNCERTAIN，Ê[B]=31.7958 ⚠ cheaper+UNCERTAIN（需 sensitivity 复核，018 §四）
+- sensitivity（018 §四 + 019 §4 口径：challenger 集合 C_FG = {θ: Ê_cal[B_θ] < Ê_cal[B_{θ̂_FG}]=31.7975}，逐个分类；**material vs numerical-near-tie**：Ê[B] 差 ≥ 0.0500 bit/episode 为 material、< 0.0500 为 near-tie——diagnostic only，不改 G2 Gate，019 §4/§8）
+  - (128, 1.0)：Ê[B]=0.0000（差 31.797）→ INFEASIBLE
+  - (128, 1.2)：Ê[B]=0.0000（差 31.797）→ INFEASIBLE
+  - (128, 1.4)：Ê[B]=0.0000（差 31.797）→ INFEASIBLE
+  - (128, 1.6)：Ê[B]=0.0000（差 31.797）→ INFEASIBLE
+  - (128, 1.8)：Ê[B]=0.0000（差 31.797）→ INFEASIBLE
+  - (128, 2.0)：Ê[B]=0.0000（差 31.797）→ INFEASIBLE
+  - (256, 1.8)：Ê[B]=0.0000（差 31.797）→ INFEASIBLE
+  - (256, 2.0)：Ê[B]=0.0000（差 31.797）→ INFEASIBLE
+  - (128, 0.8)：Ê[B]=22.1792（差 9.618）→ UNCERTAIN ⚠ material+UNCERTAIN（需独立 sensitivity 复核，019 §4）
+  - (256, 1.6)：Ê[B]=31.5517（差 0.246）→ INFEASIBLE
+  - (256, 1.4)：Ê[B]=31.7958（差 0.002）→ UNCERTAIN ⚠ near-tie+UNCERTAIN（差仅 0.002 bit/episode，无实践意义——不值得为它改 policy，019 §4）
   注（018 §六 anti-post-hoc）：若 sensitivity（如 N_CAL=1200）改选 θ̂，**必须换全新 test seeds 重新认证**（当前 test 已可见）；若 θ̂ 不变，原 G2 test 保留。
-- sensitivity（018 §四：challenger 集合 C_D8 = {θ: Ê_cal[B_θ] < Ê_cal[B_{θ̂_D8}]=36.8800}，逐个分类；重点是 **cheaper + UNCERTAIN** challenger）：
-  - (128, 0.8)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (128, 1.0)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (128, 1.2)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (128, 1.4)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (128, 1.6)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (128, 1.8)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (128, 2.0)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (256, 1.6)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (256, 1.8)：分类 INFEASIBLE，Ê[B]=0.0000
-  - (256, 2.0)：分类 INFEASIBLE，Ê[B]=0.0000
+- sensitivity（018 §四 + 019 §4 口径：challenger 集合 C_D8 = {θ: Ê_cal[B_θ] < Ê_cal[B_{θ̂_D8}]=36.8800}，逐个分类；**material vs numerical-near-tie**：Ê[B] 差 ≥ 0.0500 bit/episode 为 material、< 0.0500 为 near-tie——diagnostic only，不改 G2 Gate，019 §4/§8）
+  - (128, 0.8)：Ê[B]=0.0000（差 36.880）→ INFEASIBLE
+  - (128, 1.0)：Ê[B]=0.0000（差 36.880）→ INFEASIBLE
+  - (128, 1.2)：Ê[B]=0.0000（差 36.880）→ INFEASIBLE
+  - (128, 1.4)：Ê[B]=0.0000（差 36.880）→ INFEASIBLE
+  - (128, 1.6)：Ê[B]=0.0000（差 36.880）→ INFEASIBLE
+  - (128, 1.8)：Ê[B]=0.0000（差 36.880）→ INFEASIBLE
+  - (128, 2.0)：Ê[B]=0.0000（差 36.880）→ INFEASIBLE
+  - (256, 1.6)：Ê[B]=0.0000（差 36.880）→ INFEASIBLE
+  - (256, 1.8)：Ê[B]=0.0000（差 36.880）→ INFEASIBLE
+  - (256, 2.0)：Ê[B]=0.0000（差 36.880）→ INFEASIBLE
   注（018 §六 anti-post-hoc）：若 sensitivity（如 N_CAL=1200）改选 θ̂，**必须换全新 test seeds 重新认证**（当前 test 已可见）；若 θ̂ 不变，原 G2 test 保留。
-（262.6s；累计 271.0s）
+（213.5s；累计 221.0s）
 
 ## 3. Primary Gate @ H=96（017 §六/§八，θ̂ 冻结、test fresh）
 
@@ -144,7 +144,7 @@
   → **G2 PASS**。
   双方 FEASIBLE 且 U95(E[D])<0 ⇒ 统计证实 granularity 在 separately calibrated 下仍省 communication bits。
 
-（30.9s；累计 301.9s）
+（23.2s；累计 244.2s）
 
 ## 4. Secondary stress @ H=48（017 §四：同冻结 controller，诚实报告 operating-region boundary；不为 H=48 重新校准）
 
@@ -162,7 +162,7 @@
   → **G2 PASS**。
   双方 FEASIBLE 且 U95(E[D])<0 ⇒ 统计证实 granularity 在 separately calibrated 下仍省 communication bits。
 
-（28.0s；累计 329.9s）
+（19.0s；累计 263.2s）
 
 ## 5. Secondary diagnostics（017 §七）
 
@@ -194,7 +194,7 @@
   - 同 operating point（θ̂_D8）下 FG vs D8: E[B^FG@θ̂D8 − B^D8@θ̂D8] = -5.3250 —— 若仍明显为负，优势主要来自 action-space granularity；
   - FG 换 operating point: E[B^FG@θ̂FG − B^FG@θ̂D8] = 0.0000 —— 自身上 dual operating point 的增益。
   - D8 在 θ̂_FG 与 θ̂_D8 下的 E[B] 比较见上表（dd vs df）。
-  - **注（017 §七 通道分离）**：θ̂_FG=θ̂_D8 ⇒ operating-point 通道为 0，E[D] 全部归因于 action-space granularity（同一 dual operating point 下 FG 严格更省）——016 §8 的 policy-class 包含关系（Π_D8⊆Π_FG）在该 operating point 上的经验实现。
+  - **注（019 §3 收紧；同步 README 口径）**：对本次 run 选出的等 θ 控制器（θ̂_FG=θ̂_D8），两者唯一代码差异是 admissible evidence-acquisition action space ⇒ 观测 test gap 归因于该差异（**经验归因，限定于该对控制器**）；**policy-class 包含关系（Π_D8⊆Π_FG ⇒ J*_FG≤J*_D8，016 §8）是独立的理论陈述，不与本次 empirical gap 直接绑定**（019 §3：两者不可混称为“经验实现”）。
 
 ## 6. Forced-continuation 口径修正 + robustness（017 §一 P1-1/P1-2）
 
@@ -223,7 +223,9 @@
 
 > **论文正式表述（018 §八 收紧）**：Under separately calibrated QoS-dual controllers selected from the same pre-specified calibration grid and evaluated on fresh held-out trials, adaptive feedback granularity achieves statistically certified communication savings **relative to the calibrated Direct8 controller**（test 认证对象是 π̂_FG vs π̂_D8 单对，非整个 policy family，018 §八）。
 
-- **B0.7-G2 定位（017 §final）**：separately calibrated QoS-dual policy-family certification。若 **G2 PASS**，论文核心 performance 主线闭环；G3（DualCPI 是否还有独立增益）应变成“是否值得纳入主算法”的 Gate，而不是必做的性能增强——避免系统从“反馈粒度这一核心科学问题”跑回复杂 planner/sample-complexity 工程。
+- **B0.7-G2 定位（017 §final）**：separately calibrated QoS-dual policy-family certification。若 **G2 PASS**，论文核心 performance 主线闭环。
+- **B0.7-G3 = DualCPI Value-of-Complexity Gate（019 §6-§9，next）**：
+  主比较仅 **FG_base ↔ FG_DualCPI**（D8+DualCPI 只作 secondary diagnostic，019 §9——不做 FG/FG+CPI/D8/D8+CPI 四格扩散）；**双 Gate（019 §6）**：Gate A（performance，matched-QoS 同 G2）：D=B^{CPI}−B^{base}、U95(E[D])<−δ_G3；Gate B（practical relevance，独立统计不混入 A）：ΔN_Q（rollout worlds/decision）、ΔT_cpu、W_CPI=E[rollout worlds per decision] + 预注册预算 C_CPI≤C_max；δ_G3 默认 2.0 bits/episode = **minimum practically relevant communication saving（effect-size，≈5%·E[B^{base}]，019 §7）**——不是 algorithm-complexity 的代理（019 §5：2 communication bits ≠ planner complexity）。ADOPT ⟺ A 过 ∧ B 预算内 ∧ 无 QoS 退化；否则 NOT-ADOPTED → G2 结论即最终通信结论，不继续堆算法。
 
-总耗时: 453.1s
+总耗时: 347.8s
 
