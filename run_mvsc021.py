@@ -27,6 +27,10 @@
   P0-4（002 §八）分层抽样：H0/H1 严格 n_0=n_1=n（独立 seed），不再靠 binomial。
   P1（002 §七/§九 最小化）reference 用 MITM 精确化（8-bit 256²+256²，非 256⁴），
         BETA8 = 1 - P_D,max^{8b} + eps_D。
+  A2（C2.1 审计注记）：本 runner 的 myopic/direct 基线是 **C2 时代的 one-step
+        参考**（`myopic_decision`/`direct_decision`：continuation = 立即 R(X')，
+        非 budget-region 版）——Gate D1/D2 的参考对象有意用它们（002 §十一：
+        budget-aware Myopic-FG 是 C3a migration 的正式定义，不在 C2.1 重做）。
 
 冻结参数：N=4、GAMMA4=[-1,1,3,5] dB、levels (1,2,4,8)、b_{0,i}=16（κ=1
 homogeneous special case）、α=0.05、ε_D=0.01、H∈(48,96)；matched 网格用
@@ -758,6 +762,7 @@ def main():
         ("Direct8", direct_decision, pl8, quants8),
         ("Phase-FG(4-bit)", phase_decision_budget, pl4, quants4),
     ]
+    persist_cal = {}
 
     for (dname, alpha_d, rho_grid, beta_map, dtag) in [
         (f"matched（001 §三，ρ-homotopy {rho_m}）", 0.05, rho_m,
@@ -779,6 +784,8 @@ def main():
             out(f"    θ̂ = ({best['rho']},{best['eta']})  (E[B]={best['eb']:.3f}, "
                 f"cls={best['cls']}, ufa={best['ufa']:.4f}, "
                 f"umd={best['umd']:.4f})；理由：{reason}")
+        if dtag == "3.1":
+            persist_cal["matched"] = cal_res
         out("")
         out("| method | θ̂ | QoS cls | U_FA | U_MD | E[B] | E[B|H0] | E[B|H1] "
             "| E[payload] | E[N_tx] |  （@H=96）")
@@ -835,15 +842,10 @@ def main():
     out("### 3.4 matched 定性（002 §二/§三）")
     out("")
 
-    # 用 matched 校准结果（3.1 段已输出）——重跑小结用 mt_cal
-    mt_res = None
-    for (dname, alpha_d, rho_grid, beta_map, dtag) in []:
-        pass
-    # 直接重跑 matched 校准最简（小样本已足够定性）
-    H_cal2, L_cal2 = sample_set_strat(n_cal, SEED_CAL + 5, model4)
-    rows_pf = calibrate(phase_decision_budget, rho_m, eta_g, 96,
-                        H_cal2, L_cal2, n_cal, 0.05, BETA8,
-                        model4, quants8, pl8, verbose=False)[1]
+    # A1（C2.1 审计）：§3.4 复用 §3.1 matched 口径已跑好的 cal_res —— 不再
+    # 用第二个 seed（SEED_CAL+5）重跑 whole matched calibration（消除重复算力
+    # 与 §3.1 表格抽样集不一致；002 §四 的“不重复为跑而跑”精神）。
+    rows_pf = persist_cal["matched"]["Phase-FG(8-bit)"]["rows"]
     any_feas = any(r["cls"] == "FEASIBLE" for r in rows_pf)
     out(f"- Phase-FG(8-bit) @ matched、ρ-homotopy：{len(rows_pf)} 个网格点，"
         f"FEASIBLE 数 = {sum(1 for r in rows_pf if r['cls'] == 'FEASIBLE')}，"
@@ -860,9 +862,9 @@ def main():
     out("## 4. Gate D1（solver-quality，Lagrangian）与 D2（primal E[C]）"
         "（002 §三，取代 C2 的 E[B]-only Gate D）")
     out("")
-    mt_cal = None
-    # 重新扫 matched（用完整校准结果，若 3.1 已跑则直接用——简化：重跑一次）
-    # Gate D1/D2 用 4-bit oracle（C2 冻结粒度）
+    # Gate D1/D2 用 4-bit oracle（C2 冻结粒度）；θ-fixed corners 含 ρ-homotopy
+    # 最大点 (8192,1.2)——002 §三 的 D1 是 θ-fixed solver-quality 证书（matched
+    # 网格无可行 θ̂，故不用“matched θ̂”扫，如实注明）。
     GATE_D_CORNERS = ((256, 1.2), (512, 1.2), (1024, 1.6), (8192, 1.2))
     thetas_d = GATE_D_CORNERS
     rows_d1 = []

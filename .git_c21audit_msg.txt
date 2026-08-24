@@ -1,0 +1,37 @@
+C2.1 audit-driven fixes (deep audit of code+docs, per user request)
+
+Code (run_mvsc021.py):
+- A1: section 3.4 reused the whole matched calibration on a second seed
+  (SEED_CAL+5) instead of reusing the section-3.1 cal_res already in the
+  dialect loop -> duplicate compute + sample-set inconsistency between the
+  section-3.1 tables (SEED_CAL) and the 3.4 summary. Now persisted via
+  persist_cal["matched"] and 3.4 reads rows from it; dead loop + mt_cal +
+  stale comment removed. FULL runtime 971.4s -> 757.6s (the removed
+  re-run cost ~214s). Numerics unchanged.
+- A2: docstring note that myopic_decision/direct_decision are C2-era
+  one-step baselines (non-budget-region), intentionally used as Gate D1/D2
+  references; budget-aware Myopic-FG is the C3a migration definition.
+
+README.md (R1-R5):
+- R1: "adcice/" -> "advice/" (7 historical occurrences).
+- R2: C2 bullet matched wording now carries a C2.1 note: the
+  "mechanism-layer infeasible" statement holds only for the registered
+  frozen family/grid; primal feasibility proven by pi_full construction
+  (C=96<=H=96, P_D=P_D,max^8b(0.05)=0.8509>=0.8382).
+- R3/R4: "next steps" section rewritten per advice/002 s11: marks C0-C2.1
+  complete, reorders to C3a migration (new budget-aware Myopic-FG must
+  reproduce G2; Phase-FG NOT required to reproduce G2) -> C3b algorithm ->
+  C3c feasibility frontier (rho/eta homotopy + KL necessary bound,
+  three-case) -> C4 heterogeneous U2U -> C5 robustness -> B1 last; paper
+  gates per 001 s27 amended by 002 s3 (D1 Lagrangian Delta_J, D2 matched
+  E[C]); removed the stale "g>=0 => prune probe" text and "D solver vs
+  exact CMDP" phrasing.
+- R5: run commands for run_mvsc021.py added.
+
+Reports regenerated (SMOKE 91.7s, FULL 757.6s) with consistent numbers
+(MITM 8-bit P_D,max=0.8509, beta8=0.1591; pi_full construction; region
+gates 263 checks 0 violation; matched 63-theta homotopy grid FEASIBLE=0
+(registered-family infeasible, not mechanism infeasible); Gate D1 max
+Delta_J=1.89% <= 10% PASS (Lagrangian, all non-negative), D2 UNRESOLVED;
+legacy all FEASIBLE: Phase-FG(8) E[B]=27.57 vs Direct8 29.18 (paired
+-1.61, U95=4.27 not certified), vs Myopic 22.03, Phase-FG(4) 24.35).

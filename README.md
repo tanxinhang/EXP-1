@@ -13,16 +13,16 @@
   与 **O-PEF-3**（depth-3 诊断性 solver 改进）；
 - 基准：Raw Fusion / All-Neighbor / Random-K / SNR Top-K / Censoring / OTS-F / P-OTS /
   Global Fixed Progressive / Static Cost-Aware Progressive（§49–§53）；
-- **R1（依据 adcice/001.md 审计）**：双乘子 (μ_M, μ_F) sweep + 策略自身终端判决、
+- **R1（依据 advice/001.md 审计）**：双乘子 (μ_M, μ_F) sweep + 策略自身终端判决、
   adjacent-only 动作族（0→1,1→2,2→4）、Lagrangian G2（J=E[B]+μ_M P_M+μ_F P_FA）、
   精确前向概率传播（主结果无需 MC）、G1a/G1b 独立认证、公平基线 1-bit-seeded P-OTS、
   2×2 solver 实验（cross-level × depth-2/3）。
-- **R1.1+R2（依据 adcice/002.md）**：R1.1 三个小修复（1bit_POTS 冻结 1-bit 排序、
+- **R1.1+R2（依据 advice/002.md）**：R1.1 三个小修复（1bit_POTS 冻结 1-bit 排序、
   exact_np_roc 按假设分别归一化、"不减"文字修正）+ full-precision constrained
   policy-mixture LP（`scipy.linprog`）冻结 **B_DP^CMDP** oracle；R2 实现
   **resource-bounded lookahead**（horizon = 未来 payload bits）`V_h(x)=min{R_stop,
   min_{a:c_a≤h}[c_a+E V_{h−c_a}]}`，硬认证 V_16(x)=V*(x) 机器精度。
-- **R2.1（依据 adcice/003.md，MVS-A 封板）**：CMDP **column generation**
+- **R2.1（依据 advice/003.md，MVS-A 封板）**：CMDP **column generation**
   （LP master + ExactDP pricing oracle）认证全局最优 **B_CMDP\***；hard-budget
   （RB-HardBudget，ablation）与 **receding RBL-RH** 分离（每状态重新读取
   policies[H]）；online sparse planner（memoized Solve(x,h)，不建全表）与
@@ -328,13 +328,13 @@
   achieves statistically certified communication savings **relative to
   the calibrated Direct8 controller**（test 认证对象是 π̂_FG vs π̂_D8
   单对，非整个 Direct8 policy family）。
-- **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
+- **MVS-B0.1（依据 advice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
   （Q_prog−Q_dir = E[min{D(x')−Δ₂, b_h}]，b_h=0 ⇒ 渐进支配）；q<7/23 降为 Corollary 并新增
   E[C_future|M^(1)]<7 判据；feedback/setup 成本（b_setup）敏感性；正式 regression test suite
   （all checks PASS）；创新定位：**Feedback-Granularity-Aware Adaptive Evidence Acquisition**。
-- **MVS-B0（依据 adcice/004.md）**：**sparse tuple-state backend**
+- **MVS-B0（依据 advice/004.md）**：**sparse tuple-state backend**
   （状态 x=(z_1..z_N)、Ω 现场计算、动作/PMF on-demand、memo key (x,h)、
   279^8 不建全表）；N=4 与旧 eager 表等价认证（B0-G0）；N=8/R={1,2,4,8}
   在线规划（B0-G1）；**header b_h 激活 cross-level 相变**（b_h=0 probe →
@@ -346,7 +346,7 @@
 ```
 Exp-1/
 ├── SystemModel.md          # 系统模型文档（只读参考）
-├── adcice/001.md           # 交叉审计意见（R1 依据）
+├── advice/001.md           # 交叉审计意见（R1 依据）
 ├── run_mvsa.py             # v0 流水线（diagnostic，G2/G3/G4 审计后 REOPEN）
 ├── run_mvsa_r1.py          # R1 流水线：目标一致的有约束策略审计
 ├── run_mvsa_r11.py         # R1.1+R2 流水线：CMDP LP oracle + RBL
@@ -415,6 +415,8 @@ python run_mvsb07g2.py       # B0.7-G2 separately calibrated QoS-dual certificat
 python run_mvsc01.py         # MVS-C C0+C1 semantic closure + link-aware phase theorem 验证（001 §二十六.0-1，约 <1 分钟）
 python run_mvsc02.py         # MVS-C C2 phase-guided policy + exact budgeted-CMDP oracle（Gate D；FULL 约 8 分钟）
 python run_mvsc02.py --smoke # C2 冒烟（约 1.5 分钟）
+python run_mvsc021.py         # MVS-C C2.1 budget-aware closure（advice/002.md：matched ρ-homotopy + MITM + Gate D1/D2；FULL 约 16–30 分钟）
+python run_mvsc021.py --smoke # C2.1 冒烟（约 2 分钟）
 python test_regressions.py   # regression suite（约 5–7 分钟；运行结束打印 all checks PASS）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
@@ -452,7 +454,7 @@ python smoke_test.py         # 核心模块自检
 ## 结果
 
 - **v0**（`report/MVS-A_report.md`，diagnostic）：G0/G1 PASS；G2/G3/G4 FAIL——
-  经 adcice/001.md 审计判定为指标口径问题（REOPEN）。
+  经 advice/001.md 审计判定为指标口径问题（REOPEN）。
 - **R1**（`report/MVS-A-R1_report.md`）：G0/G1a/G1b/G2 全部 PASS（J(OPEF) ≥ J(DP) 精确成立；
   J(π_DP)(x0)=V*(x0) 达 1e-13）；v0 的 μ→∞ ceiling 确认为 Bayes/NP criterion mismatch 症状
   （DP 在 s=4096 时 P_D@P_FA=0.05 ≈ 0.847 ≈ P_D,max）；2×2 实验证实 cross-level 对有限深度
@@ -551,6 +553,10 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
    E[B]≈44.5≈2.8 tx，不以全融合为最优，见 Gate D 行）——**早先“ε_D 余量被 CI
    消耗”是错误机制（C2 review 撤销）**，不可达是机制/网格层而非统计层；
    matched 在该规模下如实 INFEASIBLE）；
+  **注（C2.1 修正，002 §二）**：该定性只对**注册冻结族/网格**成立（matched
+  63-θ ρ-homotopy 无可行点）——**primal feasibility 已由 π_full 显式构造证明**
+  （全部 8-bit direct，C=96≤H=96，P_D=P_D,max^8b(0.05)=0.8509≥0.8382），
+  不再写"机制层不可行"；见下 C2.1 bullet。
   
   
   (b) **legacy mechanism（017 §四）全部 FEASIBLE**：
@@ -588,34 +594,31 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
   primal 由 π_full 构造证明）；legacy 全部 FEASIBLE：Phase-FG(8-bit) E[B]=27.570
   vs Direct8 29.175（paired E[D]=−1.605、U95=4.270 未认证方向性）、Myopic 22.027
   （更贵、未认证）、Phase-FG(4-bit) 24.349（β=0.40 下粗粒度更省）。
-  **下一步（001 §二十六）＝ MVS-C Architecture Realignment**：
-  - **C0 — semantic closure**：论文主 QoS 统一为 **matched detection
-    P_FA≤α ∧ P_D≥P_D,max(α)−ε_D**（默认 α=0.05、ε_D=0.01，001 §三；
-    本 G2 的 P_MD≤0.40 降为 mechanism-validation 口径）；formal objective
-    加 hard budget **C_{U2U}(ω)≤C_max^{frame}**（001 §七：frame-window
-    物理约束，非 planner horizon）；communication cost 升级为 **link-aware
-    c_{i,r→r'}=b_{0,i}+d_i(r,r')**（16+Δr 为 homogeneous special case、
-    b_{0,i}=16、κ_i=1，001 §六）；belief 只保留 canonical z-state（删
-    重复 lam，001 §十九.3）；`_decode_zs` 用 pl.N（001 §十九.2）；sigmoid
-    用 log-sigmoid（001 §十九.4）；
-  - **C1 — link-aware phase theorem**：g_{s,i}(b_i)=E[min{D_{s,i}−d_{2,i},
-    b_i}]、b*_{s,i}=inf{b:g≥0}（001 §十二：κ=1 时退化回原定理；∂⁺g/∂b =
-    P(Y_{s,i}>b) = second-refinement 触发概率）；
-  - **C2 — phase-guided policy（N=4）**：probe(r→r+) vs jump(r→r_max) vs
-    STOP，Q_i^{prog}/Q_i^{dir} 与 **theory-certified action pruning**
-    （g≥0 ⇒ probe 剔除，O(2N) 非 O(N|R|)，001 §十四）；与 exact budgeted
-    CMDP 比对（Gate D）；
-  - **C3 — N=8 homogeneous replay（migration Gate，001 §二十六）**：新架构
-    必须**逐样本复现本 G2 special-case 数值**（G2 不删除、只重定位）；
-  - **C4 — N=8 heterogeneous U2U（论文 headline，001 §二十六）**：
-    sensing/link **positive / independent / anti-correlation** regime——
-    这才是论文主实验；
-  - **C5 — protocol robustness（001 §二十六）**：p_succ∈{1,0.95,0.9,0.8}、
-    control overhead、calibration mismatch、evidence correlation。
-    **论文四 Gate（001 §二十七）**：A 数学正确性 / B 机制必要性
-    （Phase-FG<Direct8 且 <Static Progressive）/ C 通信现实性（b_ctrl>0、
-    p_succ<1、anti-correlation 下仍成立）/ D 求解器质量（N=4 vs exact
-    CMDP）。**不再扩散 G0/G1/G2… 的几十个 Gate。**
+  **已完成（MVS-C C0→C2.1，见上各 bullet）**：C0 semantic closure（matched
+  QoS + link-aware cost + frame budget + canonical belief）、C1 link-aware
+  phase theorem 数值验证、C2 phase-guided policy + 4-bit exact-oracle Gate D
+  （已由 C2.1 修正为 D1/D2）、**C2.1 budget-aware closure（002.md）**。
+  **下一步（002 §十一，MVS-C 后续）＝ 修正路线**：
+  - **C3a — Migration Gate（N=8 homogeneous replay）**：用 **new budget-aware
+    Myopic-FG** 逐样本/统计复现 B0.7-G2 special-case 数值（002 §十一：**不要
+    求 Phase-FG 复现 G2**——migration 与 algorithm 两目标分离）；C2.1 已把
+    myopic/direct 基线标注为 C2 时代 one-step 参考，此处是正式预算版定义；
+  - **C3b — Algorithm**：Phase-FG vs Myopic-FG vs Direct8（matched/legacy 双边，
+    用 C2.1 的预算版 policy + MITM β 目标）；
+  - **C3c — Feasibility frontier**：matched QoS 可达性（ρ/η-homotopy +
+    KL/信息论必要界：D(P_1^T∥P_0^T) ≥ d(1−β∥α)、κ_max·H 上界 → 三分类
+    INFEASIBLE/UNRESOLVED/FEASIBLE，002 §十）；
+  - **C4 — N=8 heterogeneous U2U（论文 headline，002 §十二）**：link-aware
+    c_{i,r→r'}=c_{ctrl,i}+c_{payload,i}（airtime 化或 retry-collapsed），
+    sensing/link **positive / independent / anti-correlation** regime；
+  - **C5 — protocol robustness（002 §十二/001 §二十六）**：p_succ∈{1,0.95,
+    0.9,0.8}、control overhead、calibration mismatch、evidence correlation；
+  - **B1**（fading/packet errors）仍最后；
+  **论文四 Gate（001 §二十七，经 002 §三 修正为 D1/D2）**：A 数学正确性 /
+  B 机制必要性（Phase-FG<Direct8 且 <Static Progressive）/ C 通信现实性
+  （b_ctrl>0、p_succ<1、anti-correlation 下仍成立）/ D 求解器质量
+  （**D1：Lagrangian Δ_J=E[B]+E[R_θ] vs V_θ* ≤ 10%**；**D2：matched QoS 下
+  E[C] 比较，双方 FEASIBLE 才判**）。**不再扩散 G0/G1/G2… 的几十个 Gate。**
 - **B1**（fading/packet errors）仍然最后。
 
 关键算术修正（003.md §8）：MVS-B 每 UAV evidence states =
