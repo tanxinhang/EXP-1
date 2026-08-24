@@ -273,6 +273,48 @@
   A_D8-reference common-stop 下 granularity 独立收益仍显著（U95<0），fairness
   无法击穿**——按 016 §15 投入 fresh **B0.7-G2**（FG/D8 分别 (ρ,η)
   calibration，test 完全 fresh、暂不加 CPI）。
+- **MVS-B0.7-G2（依据 advice/017.md，Separately Calibrated QoS-Dual
+  Policy-Family Certification，性能主线闭环）**：**FG/D8 分别拥有自己的
+  (ρ,η) dual controller**（017 §二：λ_M=ρ、λ_F=ρe^η，R_{ρ,η}(x)=
+  ρ·min{p_x,e^η(1−p_x)}，Q^(1)(a|x,h)=c_a+E[R_{ρ,η}(X')|x,a]，A_FG=
+  {(i,r'):r'>r_i,r'∈{1,2,4,8}} vs A_D8={(i,8):r_i<8}，各自 STOP⟺
+  R≤min_{A_m(h)}Q^(1)、各自 argmin、Ω>η⇒H1——彻底无 common-stop /
+  action-set leakage）；**分别 calibration**（017 §五：N_CAL=600/hyp @
+  H=96、FG/D8 **共用** worlds、grid 冻结 4ρ×7η=28/method，选 θ̂_m =
+  calibration-feasible（Wilson U95≤α,β）中 Ê_cal[B] 最小；命名
+  **separately calibrated one-step QoS-dual controllers**，017 §三）；
+  test **完全 fresh**（017 §六 方案 A：**N_TEST=1600 一次性冻结**、无
+  staged escalation ⇒ fixed-N Hoeffding 95% 声明成立；paired CRN；
+  one-sided paired Hoeffding + Wilson QoS；**CPI OFF**）。**P1 口径修正
+  （017 §一）落地**：forced-continuation 只报 **P(F=1|S_common=CONTINUE)**
+  （不再写裸 P(F=1)；把 STOP 决策状态加入分母只会更低）、ΔB_forced→
+  **gross forced-action cost**（按 episode 归一化；H=96 fresh N=1600
+  下 ≈1.49 bit/ep ≪ −12.31 gap 的 robustness 陈述）、emulate_d8 计数
+  按真实循环数（P2）。**Invariant suite 升级（017 §九，全 PASS）**：
+  inv-1 ΣP(m'|x,a)=1（max|Σw−1|=0）、inv-2 dual-Q 回归（root +
+  on-policy reachable + r=0/1/2/4 分层 × corners {(128,0.8),(512,1.2),
+  (1024,2.0)}：15085 对 max|Δ|=2e-12）、inv-3 B=16·N_tx+B_payload、
+  inv-4 B≤H（56 θ-run 0 violations）、inv-5 π_FG|_A_D8 ≡ π_D8（100
+  episodes 逐样本一致）。**FULL 结果**：θ̂_FG=θ̂_D8=**(256,0.8)**；
+  **H=96 primary：G2 PASS**（双方 FEASIBLE：FG Wilson U95 0.0896/
+  0.3121、D8 0.0849/0.3140；E[D]=**−5.33**、Hoeffding U95=**−1.17**<0、
+  L95=−9.48）；**H=48 secondary：也 PASS**（同冻结 controller 双方
+  FEASIBLE，E[D]=−5.03、U95=−2.95<0——operating-region boundary 未
+  出现）；分解 setup 差 **+1.52**（FG 事务更多：16·(E[N_tx^FG]−E[N_tx^D8])
+  =16·0.0953）、payload 差 −6.85（净省全来自 evidence payload），
+  合计 −5.33）；θ̂_FG=θ̂_D8 ⇒ cross-eval 的 operating-point 通道为 0，
+  **−5.33 全部来自 action-space granularity**（同一 dual operating
+  point 下 FG 严格更省，017 §七 通道分离的最干净情形）。**结论：G2
+  回答 017 §二 主问题 = FG 胜**（E[B|H0]/E[B|H1] 两 hypothesis 均省，
+  非平均掩盖）。**sensitivity（017 §五 校准边界噪声，正式协议不临场
+  放宽 §六）**：FG 的 Ê_cal[B] 最小候选 (128,0.8) 为边缘 UNCERTAIN
+  （U95(P_FA)=0.1229 仅超 0.12）——若真可行，θ̂_FG 将下移，只会加大
+  FG−D8 差距；D8 的更低成本候选均硬 INFEASIBLE（ρ=128 ⇒ P_MD≈1.0），
+  θ̂_D8=(256,0.8) 即族内可行最小成本；方向结论对该边界噪声稳健。
+  论文表述：Under separately calibrated QoS-dual
+  controllers and fresh held-out testing, adaptive feedback granularity
+  achieves statistically certified communication savings over the
+  Direct8 policy family considered.
 - **MVS-B0.1（依据 adcice/005.md，可信度修复+理论拔高）**：修复 1bit-POTS 重复计数；
   共享 CRN + 置信区间；Natural-policy QoS 与 NP ROC 双口径分离；Adaptive Direct-8 最优
   baseline（隔离 UAV 选择与 multi-resolution 收益）；**state-dependent conditional-VoI 定理**
@@ -356,6 +398,7 @@ python run_mvsb06pre.py      # B0.6-pre sample-complexity gate（约 4–15 分�
 python run_mvsb06prer.py     # B0.6-pre-r credibility patch（014，约 5–20 分钟）
 python run_mvsb06.py         # B0.6 matched-QoS gate（约 25–40 分钟）
 python run_mvsb06.py --map   # B0.6 + b_setup regime map（secondary，约 30–50 分钟）
+python run_mvsb07g2.py       # B0.7-G2 separately calibrated QoS-dual certification（017；FULL 冻结 N_CAL=600/N_TEST=1600，约 15–30 分钟）
 python test_regressions.py   # regression suite（约 5–7 分钟；运行结束打印 all checks PASS）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
@@ -438,19 +481,32 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
 - **B0.7-G1**（已完成，详见上文 G1 bullet）：held-out QoS-dual 认证——H=96
   matched-QoS PASS（双方 FEASIBLE、E[D]=−12.31 CI [−13.26,−11.36]）；H=48
   UNCERTAIN（双方 P_MD U95 略超 0.40，扩样可解）。
-- **B0.7-G2（016 §15-4 定义，next）**：**不再直接接 frozen CPI**（016 §5 P0/P1：
-  B0.4a-r 的 CPI certificate 基于旧 μ/SNR base 与旧 risk objective，
-  G1 已换成 λ⋆=(512, 512e^1.2) 的 dual 语义 ⇒ 旧证书不蕴含新 objective 下
-  policy improvement，塞回最多叫 frozen heuristic override）——G2 先做
-  **纯 QoS-dual constrained comparison**：FG/D8 **分别**在 calibration 上
-  优化各自 (ρ,η)（016 §7/§9：J_m⋆=inf E_π[B] s.t. P_FA≤α, P_MD≤β，
-  ρ∈{128..1024} 控制错误-风险权重、η 控制 FA/MD 相对价格与判决边界；
-  grid 冻结、只在 calibration 用），test 完全 fresh，双方 Wilson
-  U95(feasible) 后比较 Hoeffding U95(E[B^FG−B^D8])——真正的
-  constrained-policy comparison；然后 **B0.7-G3** 重构 DualCPI 使
-  certificate 与当前 R_λ⋆ 一致（016 §5/§15-5），重新获得 certified planning
-  含义——先证 granularity 本身成立、再证 certified planning 能进一步改善
-  （016 §6 顺序，不把两机制重新绑回）；
+- **B0.7-G2（已完成，017 定义 + FULL 结果详见上文 G2 bullet）**：按 016
+  §15-4 定义、017 具体化——FG/D8 **分别** calibration 各自 (ρ,η)（017 §五：
+  N_CAL=600/hyp @ H=96、4ρ×7η=28 grid 冻结），test 完全 fresh（017 §六
+  方案 A：**N_TEST=1600 一次性冻结**、paired CRN、one-sided paired
+  Hoeffding + Wilson QoS；CPI OFF）；**H=96 primary：G2 PASS**（θ̂_FG=
+  θ̂_D8=(256,0.8)、双方 FEASIBLE、E[D]=−5.33、U95=−1.17<0）、**H=48
+  stress 同冻结 controller 也 PASS**（E[D]=−5.03、U95=−2.95<0）；
+  θ̂_FG=θ̂_D8 ⇒ **−5.33 全部来自 action-space granularity**（operating-point
+  通道为 0）。**结论**：granularity 在“各自最公平 controller”下仍有统计
+  认证的通信收益（≈−5.3 bit/ep @ H=96 且 H=48 也稳定），**论文核心
+  performance 主线闭环**（先证 granularity 本身成立，016 §6 顺序）；
+- **B0.7-G3（016 §5/§15-5，**预注册 Gate**，next）**：把 DualCPI
+  certificate 重构为与当前 dual objective（R_{ρ,η}，017 §二）一致，重新
+  获得 certified planning 含义；**定位（017 final）：G3 是“是否值得纳入
+  主算法”的 Gate，不是必做性能增强**。**预注册判定规则（跑 G3 前冻结，
+  test 完全 fresh，跑后不临场改动）**：
+  1. base = G2 冻结的 θ̂_FG/θ̂_D8 one-step controllers（G2 的 CPI OFF 保持）；
+  2. 主判定（matched-QoS，同 G2 口径：双方 test FEASIBLE 才比 bit）：
+     **U95(E[B^base] − E[B^+DualCPI]) < −ε_G3**，默认 **ε_G3 = 2.0
+     bits/episode**（低于此值 = 独立增益不值得算法复杂度的代价）；
+  3. 四种结局：**ADOPT**（主判定过、无 QoS 退化）/ **NOT-ADOPTED**（Δ 不足
+     或 bit/QoS UNRESOLVED——不改算法、不重调参）→ 论文主线以 **G2 封板** /
+     QoS-INFEASIBLE（+DualCPI 引入 base 不可行）→ NOT-ADOPTED；
+  4. 若 NOT-ADOPTED：DualCPI 不进主算法，G2 结论即论文最终通信结论，不再
+     堆 planner 复杂度（避免 017 final 警告的“跑回复杂 planner/sample-
+     complexity 工程”）；
 - **B1**（fading/packet errors）仍然最后。
 
 关键算术修正（003.md §8）：MVS-B 每 UAV evidence states =
