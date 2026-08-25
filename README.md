@@ -586,7 +586,7 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
   **(4) MITM 精确 8-bit 全融合 ROC（002 §七）**：256²+suffix merge、O(256² log)
   非 256⁴；P_D,max^8b(0.05)=0.8509（η*=0.8117）→ BETA8=0.1591（=1−0.8509+ε_D）；分层抽样 n0=n1（002 §八）。
   报告：`report/MVS-C_C21_report.md`（FULL）、`report/smoke/MVS-C_C21_report.md`。
-  **FULL 主结果（N_CAL=400/N_TEST=800/hyp、971s）**：**Gate D1**（Lagrangian
+  **FULL 主结果（N_CAL=400/N_TEST=800/hyp、757.6s）**：**Gate D1**（Lagrangian
   Jθ=E[B]+E[Rθ(x_τ)] vs exact Vθ*）**Δ_J max 1.89% ≤ 10% 全非负 → PASS**（正式
   solver-quality 证书；C2 的裸 E[B] Gate 正式降级为 provisional，负 rel 只是
   dual trade）；**D2** 裸 E[B] 仅作 primal 参考（matched 双方 FEASIBLE 才判决）。
@@ -594,6 +594,12 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
   primal 由 π_full 构造证明）；legacy 全部 FEASIBLE：Phase-FG(8-bit) E[B]=27.570
   vs Direct8 29.175（paired E[D]=−1.605、U95=4.270 未认证方向性）、Myopic 22.027
   （更贵、未认证）、Phase-FG(4-bit) 24.349（β=0.40 下粗粒度更省）。
+- **MVS-C C2.1a（依据 advice/003.md，credibility patch）**：003 审计的 4 项 P0/P1 全部闭环：
+  **(1) Region-B pruning 判据修正（003 §2-§4）**：B 区 gap=(Q_prog−Q_dir)=E[Y]（tower，第二包不可行时 counterfactual 经边际 tower 进入），C 区 gap=E[min(Y,b)]；prune ⟺ dir_feas∧gap≥−tol；A 区**绝不剪probe**（003 §4 反例显式 assert g0≥0，PASS）。
+  **(2) dominance-safety（003 §5）**：真正证书 prune ⟹ Q_prog ≥ Q_dir − ε，reachable 263 检查 + A 区不剪断言，0 矛盾 PASS（取代旧的 g0↔prune 自洽自检）。
+  **(3) matched §3.4 统计修正（003 §6）**：min U_MD 限定 U_FA≤α 子集 → U_FA≤α 边最优点 (ρ=8192,η=1.6) U_MD=0.2446、与 β8=0.1591 的**真实差距 0.0855**（不再写全网格 min 0.1638 的 0.0047 假象）。
+  **(4) regression 落库（003 §8）**：**T33–T39 入 test_regressions.py**（MITM==brute、Region A/B/C law、dominance、stratified n0=n1、J≥V*），**53/53 PASS**；P2：65536 typo、P_FA≤α（det-thr）措辞、duplicate orderB 删除、Gate D1 Δ_J max 1.89%→1.88%（003 §9 预期下降兑现）；FULL runtime 757.6s→642.1s。报告：`report/MVS-C_C21_report.md`（FULL）、`report/smoke/MVS-C_C21_report.md`。
+  **[C2.1b（004 审计，独立路径对照修复）]**：区域恒等式门原为恒真式（C 区 gap 与 g_verdict 是同一变量、B 区代数恒等，永远不会失败）。修复：B 区 `phase_support_budget` 现在也计算 per-branch counterfactual E_R=E[R(X2)|X1]（仅作审计，不进入 Q_prog），g_verdict=Σw·(R1−E_R−d2) 独立于 gap 的边际 tower 路径；C 区 g_verdict=Q_prog−Q_dir 独立于 gap 的 support 形式——两侧来自不同代码路径，|gap−g_verdict|≤1e-9 可真实失败（sabotage 验证：Q_prog+5 / E_dir+5 / E_R 偏差均被捕获）。同时修复 main() 中 N=1 反例 g0_chk 的索引 bug（用 br[6]=Y=R1−d2，非 br[5]=D=R1）。T35/T36 同步为真实检查；T34 注释算术修正（c1+c2=36）。53/53 PASS；FULL/SMOKE 重跑数值与 C2.1a 逐项一致（墙钟 runtime 因机器而异：FULL 739.2s、SMOKE 88.4s），仅恒等式门描述更新。
   **已完成（MVS-C C0→C2.1，见上各 bullet）**：C0 semantic closure（matched
   QoS + link-aware cost + frame budget + canonical belief）、C1 link-aware
   phase theorem 数值验证、C2 phase-guided policy + 4-bit exact-oracle Gate D

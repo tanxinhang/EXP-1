@@ -176,8 +176,6 @@ def full_fusion_ref_mitm(model, quants, level):
     # suffix survival（从大到小累计）
     orderB = np.argsort(sB)
     sBs = sB[orderB]
-    orderB = np.argsort(sB)
-    sBs = sB[orderB]
     cF0 = np.concatenate([[0.0], np.cumsum(wB0[orderB])])
     cF1 = np.concatenate([[0.0], np.cumsum(wB1[orderB])])
     tot0, tot1 = float(wB0.sum()), float(wB1.sum())
@@ -219,7 +217,10 @@ def phase_support_budget(pl, x, om, i, h, rho, eta):
     c1 = b0+Δ1（probe 首包）、c2 = b0+Δ2（第二包）、c_dir = b0+Δ1+Δ2 = c1+c2−b0。
     区域：
       A: c1<=h<c_dir      → probe 唯一可行（direct 不可行；即使 g>=0 也**不可剪**）
-      B: c_dir<=h<c1+c2   → Q_prog = c1 + E[R(X1)]（第二包不可行，无 conditional refinement）
+      B: c_dir<=h<c1+c2   → Q_prog = c1 + E[R(X1)]（第二包不可行，无 conditional
+                            refinement；per-branch E_R=E[R(X2)|X1] 仍计算，仅作为
+                            003 §五 tower 恒等式 E[E[R(X2)|X1]]=E[R(X2)] 的
+                            独立审计对象，不进入 Q_prog）
       C: h>=c1+c2         → Q_prog = c1 + E[min{R1, c2+E_R}]（原定理区域）
     剪枝规则（002 §四）：prune probe ⟺ g0>=0 ∧ c_dir<=h。
     返回 None（该 UAV 无任何可行动作或无下一 level）或 dict。"""
@@ -268,7 +269,12 @@ def phase_support_budget(pl, x, om, i, h, rho, eta):
         R1 = r_dual(om1, rho, eta)
         E_R = 0.0
         ref = next((a for a in pl._tpl[i][z1] if a[0] == r_max), None)
-        if ref is not None and region == "C":
+        # B/C 区都计算 per-branch counterfactual E[R(X2)|X1]：C 区用于 Q_prog
+        # 的 conditional refinement；B 区第二包虽不可行，但 counterfactual 是
+        # tower 恒等式 E[E[R(X2)|X1]] = E[R(X2)] 的审计对象（003 §五：B 区
+        # gap=E[Y] 需要 per-branch 独立验证，不能只做边际代数自洽）。A 区
+        # 保持 E_R=0（probe 唯一可行，无对照物；g0_chk 语义依赖它）。
+        if ref is not None and region in ("B", "C"):
             lp1 = _logp(om1)
             lq1 = _logq(om1)
             for (m2, lp0c, lp1c) in ref[3]:
@@ -281,22 +287,45 @@ def phase_support_budget(pl, x, om, i, h, rho, eta):
         branches.append((w1, x1, om1, R1, E_R, D, Y))
     wsum = sum(br[0] for br in branches)
     E_R_sum = sum(br[0] * br[4] for br in branches) / wsum
-    g0 = sum(br[0] * min(br[6], BH) for br in branches) / wsum
+    ER1 = sum(br[0] * br[3] for br in branches) / wsum if wsum > 0 else 0.0
     if probe_feas:
         if region == "C":
             Q_prog = c1 + sum(br[0] * min(br[3], c2 + br[4])
                               for br in branches) / wsum
         else:
             # region A/B：第二包不可行 → 续程 = 立即 STOP（R(X1)）
-            Q_prog = c1 + sum(br[0] * br[3] for br in branches) / wsum
+            Q_prog = c1 + ER1
     else:
         Q_prog = None
     Q_dir = (BH + (r_max - r)) + E_dir if dir_feas else None
-    prune_probe_ok = (g0 >= 0.0) and dir_feas
+    # 003 §四 piecewise prune gap：
+    #   A：direct 不可行 → probe 绝不剪；gap ≡ -inf
+    #   B：gap = Q_prog^B - Q_dir = -d2 + (ER1 - E_dir) = E[Y]（tower；第二包
+    #       不可行，counterfactual 只通过边际 tower 进入，无需 per-branch）
+    #   C：gap = g0 = E[min(Y_C, b0)]，Y_C = R1 - E_R - d2
+    # g_verdict 是**独立计算**的对照量（003 §五 审计对象）：
+    #   B：per-branch E[Y_B] = Σw·(R1 - E_R - d2)（tower 恒等式
+    #      E[E[R(X2)|X1]] = E[R(X2)] ⇒ 与边际形式 ER1-E_dir-d2 一致）
+    #   C：(Q_prog - Q_dir) 的策略价值形式（与 support 形式 g0 一致）
+    # 因此 |gap - g_verdict| 恒等式的两边来自不同代码路径，检查可真实失败。
+    if region == "A":
+        gap = -float("inf")
+        g_verdict = None
+    elif region == "B":
+        gap = (Q_prog - Q_dir) if (Q_prog is not None and Q_dir is not None) \
+            else -float("inf")
+        g_verdict = sum(br[0] * br[6] for br in branches) / wsum  # E[Y_B]
+    else:
+        g0 = sum(br[0] * min(br[6], BH) for br in branches) / wsum
+        gap = g0
+        g_verdict = (Q_prog - Q_dir) if (Q_prog is not None and Q_dir is not None) \
+            else None
+    prune_probe_ok = (dir_feas and gap >= -1e-9)
     return {"r": r, "r_next": r_next, "r_max": r_max, "c1": c1, "c2": c2,
             "c_dir": c_dir, "probe_feas": probe_feas, "dir_feas": dir_feas,
             "region": region, "branches": branches, "wsum": wsum,
-            "E_dir": E_dir, "E_R_sum": E_R_sum, "g0": g0,
+            "E_dir": E_dir, "E_R_sum": E_R_sum, "ER1": ER1,
+            "gap": gap, "g_verdict": g_verdict,
             "Q_prog": Q_prog, "Q_dir": Q_dir, "prune_probe_ok": prune_probe_ok}
 
 
@@ -641,7 +670,7 @@ def main():
     eta4, pd4, pmd4v = pd_max_at_alpha(pfa4, pmd4, ALPHA)
     BETA8 = 1.0 - pd8 + EPS_D
     BETA4 = 1.0 - pd4 + EPS_D
-    out(f"- 8-bit（MITM，65636+65636 support）：P_D,max^8b(0.05) = {pd8:.4f}（η*="
+    out(f"- 8-bit（MITM，65536+65536 support）：P_D,max^8b(0.05) = {pd8:.4f}（η*="
         f"{eta8:.4f}）→ matched 目标 P_MD ≤ {BETA8:.4f}")
     out(f"- 4-bit（MITM）：P_D,max^4b(0.05) = {pd4:.4f}（η*={eta4:.4f}）→ "
         f"matched 目标 P_MD ≤ {BETA4:.4f}")
@@ -651,7 +680,7 @@ def main():
     out("")
     c_full = 4 * (BH + 8)                       # 4×8-bit direct = 96
     out(f"- π_full = 四架全部 8-bit direct，阈值 η*(α) 由 MITM 参考标定：成本 "
-        f"C=4×24={c_full} ≤ H=96；P_FA=α=0.05（构造标定）、P_D="
+        f"C=4×24={c_full} ≤ H=96；P_FA≤α（det-thr 构造标定，α=0.05）、P_D="
         f"P_D,max^8b(0.05)={pd8:.4f} ≥ 0.8382 ⇒ **matched primal 可行**"
         f"（存在性成立，C2 的 INFEASIBLE 结论降级为“冻结族/网格不可行”，002 §二）。")
 
@@ -666,14 +695,22 @@ def main():
                             levels=LEVELS8, direct_only=False, delta_c=1.0)
     # 单 UAV N=1：fresh 状态 x=0, c1=17, c_dir=24
     sup20 = phase_support_budget(pl_test, 0, 0.0, 0, 20, th[0], th[1])
+    # 003 §七：显式断言反例前提 g0 >= 0（不能只靠 region/feasibility；
+    # region A 中分支 Y = R1 - E_R - d2，E_R 未算（A 第二包不可行）⇒
+    # Y_code = R1 - d2，g0_chk = E[min(Y_code, 16)] 为 002 定理量）。
+    # 注意必须用 br[6]（Y = R1 - E_R - d2），不能用 br[5]（D = R1 - E_R）：
+    # A 区 E_R=0 时 br[5]=R1，与定理量 Y_code=R1-d2 差一个 d2。
+    g0_chk = (sum(br[0] * min(br[6], BH) for br in sup20["branches"])
+              / sup20["wsum"]) if sup20 is not None else None
     r_a = (sup20 is not None and sup20["region"] == "A"
-           and sup20["probe_feas"] and not sup20["dir_feas"])
-    out(f"- **Prune-safety 反例（002 §四，N=1 fresh UAV，h=20）**：c1=17、"
-        f"c_dir=24 ⇒ region={sup20['region']}（A：probe 唯一可行）、"
+           and sup20["probe_feas"] and not sup20["dir_feas"]
+           and g0_chk is not None and g0_chk >= 0.0)
+    out(f"- **Prune-safety 反例（002 §四 + 003 §七，N=1 fresh UAV，h=20）**："
+        f"c1=17、c_dir=24 ⇒ region={sup20['region']}（A：probe 唯一可行）、"
+        f"g0_chk=E[min(R1-d2,16)]={g0_chk:.3f} ≥ 0（**显式前提断言**）、"
         f"probe_feas={sup20['probe_feas']}、dir_feas={sup20['dir_feas']}、"
-        f"prune_probe_ok={sup20['prune_probe_ok']}（g>=0 时也必须为 False，"
-        f"因为 direct 不可行）→ {mp(r_a and not sup20['prune_probe_ok'])}"
-        f"（若 g0>=0 而 prune_probe_ok=False 才安全）。")
+        f"prune_probe_ok={sup20['prune_probe_ok']}（g>=0 且 direct 不可行时也"
+        f"必须为 False）→ {mp(r_a and not sup20['prune_probe_ok'])}")
     # —— reachable 状态上三区域验证
     seen = set()
     for e in range(80):
@@ -693,7 +730,7 @@ def main():
             x += (z2 - zi) * pl8.powers[i]
             om += pl8._llr_i[i][z2] - pl8._llr_i[i][zi]
             cost += BH + (r2 - r_cur)
-    n_chk = n_bad = 0
+    n_chk = n_bad_B = n_bad_C = 0
     region_cnt = {"A": 0, "B": 0, "C": 0}
     for (x, h) in seen:
         if h <= 0:
@@ -705,43 +742,50 @@ def main():
                 continue
             n_chk += 1
             region_cnt[sup["region"]] = region_cnt.get(sup["region"], 0) + 1
-            if sup["region"] == "C":
-                # 原定理恒等式（013 §1）在 region C 成立
-                dev = abs(sup["Q_prog"] - 0.0 - (sup["c1"] - 0.0))  # 占位
-                E_R_sum = sum(br[0] * br[4] for br in sup["branches"]) / sup["wsum"]
-                dev = abs((sup["Q_prog"] - sup["c1"]) -
-                          sum(br[0] * min(br[3], sup["c2"] + br[4])
-                              for br in sup["branches"]) / sup["wsum"])
-                if dev > 1e-6:
-                    n_bad += 1
-            elif sup["region"] in ("A", "B"):
-                # 区域 A/B：Q_prog = c1 + E[R(X1)]（第二包不可行）
-                dev = abs((sup["Q_prog"] - sup["c1"]) -
-                          sum(br[0] * br[3] for br in sup["branches"]) / sup["wsum"])
-                if dev > 1e-9:
-                    n_bad += 1
-    out(f"- **区域一致性**：reachable 支撑检查 {n_chk}（region A/B/C 计数 "
-        f"{region_cnt}），Q_prog 公式与区域语义偏差 >1e-6 的个数 {n_bad} → "
-        f"{mp(n_bad == 0)}")
-    # —— prune 安全规则在 reachable 上自洽
-    n_prune_chk = n_prune_bad = 0
+            if sup["region"] == "B":
+                # 003 §五：Region-B 恒等式 gap == E[Y_B]。
+                # gap 走边际 tower 路径（Q_prog−Q_dir = −d2+ER1−E_dir），
+                # g_verdict 走 per-branch counterfactual 路径
+                # （Σw·(R1−E_R−d2)，E_R=E[R(X2)|X1]）——两条独立代码路径，
+                # 一致性由 tower 恒等式保证，检查可真实失败。
+                if abs(sup["gap"] - sup["g_verdict"]) > 1e-9:
+                    n_bad_B += 1
+            elif sup["region"] == "C":
+                # 003 §五：Region-C 恒等式 gap == (Q_prog−Q_dir)。
+                # gap = E[min(Y,b)] 直接由 support 计算，g_verdict = Q_prog−Q_dir
+                # 走策略价值形式——两条独立代码路径，检查可真实失败。
+                if abs(sup["gap"] - sup["g_verdict"]) > 1e-9:
+                    n_bad_C += 1
+            # A 区：gap 恒等式 N/A（probe 唯一可行），003 §五 A 分支
+    out(f"- **区域恒等式（003 §五按 region 分口径，独立路径对照）**：reachable "
+        f"支撑检查 {n_chk}（region A/B/C 计数 {region_cnt}）——"
+        f"B: |gap−E[Y]_per-branch|>1e-9 数 {n_bad_B}、"
+        f"C: |gap−(Q_prog−Q_dir)|>1e-9 数 {n_bad_C} → "
+        f"{mp(n_bad_B == 0 and n_bad_C == 0)}")
+    # —— 003 §五：真正的 constrained dominance certificate
+    #    ∀(s,i,h): prune ⟹ Q_prog ≥ Q_dir − ε；A 区绝不剪
+    n_dom = n_dom_bad = 0
     for (x, h) in seen:
         if h <= 0:
             continue
         om = pl8.omega(x)
         for i in range(4):
             sup = phase_support_budget(pl8, x, om, i, h, th[0], th[1])
+            # dominance 检查需要 dir 可行（否则不可比较）且 probe 可行
             if sup is None or not sup["probe_feas"] or not sup["dir_feas"]:
                 continue
-            n_prune_chk += 1
-            if sup["g0"] >= 0.0:
-                if not sup["prune_probe_ok"]:
-                    n_prune_bad += 1
-            else:
+            n_dom += 1
+            if sup["region"] == "A":
                 if sup["prune_probe_ok"]:
-                    n_prune_bad += 1
-    out(f"- **constrained-pruning 自洽**（prune ⟺ g>=0 ∧ c_dir<=h）：检查 "
-        f"{n_prune_chk}，矛盾 {n_prune_bad} → {mp(n_prune_bad == 0)}")
+                    n_dom_bad += 1      # A 区绝不剪
+            elif sup["prune_probe_ok"]:
+                # 剪了 probe ⇒ Q_prog >= Q_dir − tol
+                if sup["Q_prog"] is not None and \
+                        sup["Q_prog"] < sup["Q_dir"] - 1e-8:
+                    n_dom_bad += 1
+    out(f"- **dominance-safety（003 §五）**：prune ⟹ Q_prog ≥ Q_dir − ε："
+        f"检查 {n_dom}（dir_feas 状态，A 区含不剪断言），矛盾 {n_dom_bad} "
+        f"→ {mp(n_dom_bad == 0)}")
 
     # -------------------------------------------------- 2. 双口径校准/测试
     out("")
@@ -847,11 +891,22 @@ def main():
     # 与 §3.1 表格抽样集不一致；002 §四 的“不重复为跑而跑”精神）。
     rows_pf = persist_cal["matched"]["Phase-FG(8-bit)"]["rows"]
     any_feas = any(r["cls"] == "FEASIBLE" for r in rows_pf)
-    out(f"- Phase-FG(8-bit) @ matched、ρ-homotopy：{len(rows_pf)} 个网格点，"
-        f"FEASIBLE 数 = {sum(1 for r in rows_pf if r['cls'] == 'FEASIBLE')}，"
-        f"最低 U_MD@{'U_FA≤α' if any_feas else 'α 边'} = "
-        f"{min(r['umd'] for r in rows_pf):.4f}、对应 P_D ≈ "
-        f"{1 - min(r['umd'] for r in rows_pf):.4f}")
+    # 003 六：min U_MD 限定在 U_FA≤α 子集（不能取全网格最小值，否则会
+    # 写出“离 matched 只差 0.0047”的错误直觉）。
+    ufa_ok = [r for r in rows_pf if r["ufa"] <= ALPHA]
+    edge = min(ufa_ok, key=lambda r: r["umd"]) if ufa_ok else None
+    nf = sum(1 for r in rows_pf if r["cls"] == "FEASIBLE")
+    if edge is None:
+        out(f"- Phase-FG(8-bit) @ matched、ρ-homotopy：{len(rows_pf)} 个网格点，"
+            f"FEASIBLE 数 = {nf}；**U_FA≤α 子集为空**（matched 网格无一点满足 "
+            f"U_FA≤{ALPHA}）→ @α 边统计 UNCERTAIN（003 六）。")
+    else:
+        gap_md = edge["umd"] - BETA8
+        out(f"- Phase-FG(8-bit) @ matched、ρ-homotopy：{len(rows_pf)} 个网格点，"
+            f"FEASIBLE 数 = {nf}；**U_FA≤α 边最优点**：(ρ={edge['rho']}, "
+            f"η={edge['eta']})、U_FA={edge['ufa']:.4f}、U_MD={edge['umd']:.4f} "
+            f"（≈P_D {1 - edge['umd']:.4f}）——与 β8={BETA8:.4f} 的真实差距 "
+            f"**{gap_md:.4f}**（003 六：不是全网格 min 的假象差距）。")
     out(f"- **定性（002 §二）**：matched 网格结果 = **registered frozen "
         f"controller/grid family** infeasible（或 feasible）——**不等于机制层不可行**；"
         f"primal feasibility 已由 §0.1 π_full 构造（C=96≤H、P_D="

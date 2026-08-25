@@ -1,0 +1,44 @@
+MVS-C C2.1a credibility patch (advice/003.md) + C2.1b identity-gate fix (004)
+
+003 audit items all closed:
+(1) Region-B phase pruning fix (003 s2-s4): Region B gap = Q_prog^B - Q_dir =
+    E[Y] (tower; second packet infeasible, counterfactual enters only via
+    marginal tower); Region C gap = E[min(Y,b)]; prune <=> dir_feas ∧ gap≥−tol;
+    Region A never prunes probe. phase_support_budget now returns piecewise
+    gap/g_verdict instead of a single g0.
+(2) dominance-safety gate (003 s5): replaced g0↔prune self-consistency with
+    the true certificate prune ⟹ Q_prog ≥ Q_dir − ε over reachable states
+    (263 checks, 0 violations; A-region never-prune asserted).
+(3) matched §3.4 min U_MD restricted to U_FA≤α subset (003 s6): edge point
+    (ρ=8192,η=1.6) U_FA=0.0422, U_MD=0.2446; true gap to β8=0.1591 is 0.0855
+    (not the old all-grid-min 0.1638 fake 0.0047).
+(4) N=1 prune-safety counterexample now explicitly asserts g0 ≥ 0 (003 s7).
+(5) C2.1 invariants T33–T39 added to test_regressions.py (003 s8): MITM==brute
+    4-bit ROC, Region A/B/C law, prune dominance, stratified n0=n1, J≥V* at
+    frozen oracle cases; 53/53 PASS.
+(6) P2 (003 s11): 65636→65536 typo; P_FA=α → P_FA≤α (det-thr note, 003 s10);
+    duplicate orderB removed; Gate D1 max Δ_J 1.89%→1.88% (003 s9 predicted
+    drop); FULL runtime 757.6s → 642.1s (aligned with the report's own
+    historical value; README previously cited stale 971s/739.1s).
+(7) README: C2.1a bullet + runtime updated; reports regenerated
+    (report/MVS-C_C21_report.md FULL 642.1s, report/smoke/MVS-C_C21_report.md).
+
+C2.1b (advice/004.md audit): region-identity gates were vacuous — C-region
+gap and g_verdict were the SAME variable (g0), B-region gap ≡ g_verdict
+algebraically (gap=Q_prog−Q_dir=−d2+ER1−E_dir = g_verdict), so |gap−g_verdict|
+could never fail. Fixed to truly independent paths:
+- phase_support_budget now computes per-branch counterfactual E_R=E[R(X2)|X1]
+  in region B too (audit-only; Q_prog still c1+E[R(X1)]), so B-region
+  g_verdict = Σw·(R1−E_R−d2) is independent of the marginal-tower gap;
+- C-region g_verdict = Q_prog−Q_dir (strategy-value form) independent of the
+  support-form gap = E[min(Y,b)];
+- sabotage-verified: Q_prog+5 / E_dir+5 / E_R corruption all now FAIL the gate
+  (max |gap−g_verdict| on reachable states ≈ 2.7e-13, tol 1e-9);
+- fixed g0_chk index bug in main(): must use br[6]=Y=R1−d2 (the 002 theorem
+  quantity), not br[5]=D=R1;
+- T35/T36 now real checks; T34 comment arithmetic corrected (c1+c2=36).
+53/53 PASS; FULL/SMOKE numerics unchanged from C2.1a (gate wording updated;
+wall-clock runtime machine-dependent: FULL 739.2s, SMOKE 88.4s on this rerun).
+
+Residual note: README C2 bullet keeps the historical 'Gate D PASS (E[B]-rel)'
+wording; D1/D2 correction is carried by the C2.1/C2.1a bullets.

@@ -751,6 +751,75 @@ def run():
     check("T32 CPI budget-aware anchor clamp (h < nominal cost => STOP)",
           ok32)
 
+    # ------------------------------------------------- C2.1 invariants
+    # (advice/003.md s8: T33-T39, deterministic; imports run_mvsc021)
+    import run_mvsc021 as c21
+    import math
+
+    # T33 MITM 4-bit reference == brute-force convolution
+    import run_mvsc02 as c2       # brute 4-bit full-fusion ref lives here
+    mm4 = c21.GaussianDetectorModel(c21.GAMMA4, (0.5, 0.5))
+    q4 = [c21.NestedQuantizer(i, mm4, 4, c21.LEVELS4) for i in range(4)]
+    pfa_mitm, pmd_mitm = c21.full_fusion_ref_mitm(mm4, q4, 4)
+    pfa_br, pmd_br, _g, _w0, _w1 = c2.full_fusion_ref(mm4, q4, 4)
+    ok33 = all(abs(pfa_mitm(x) - pfa_br(x)) < 1e-9 for x in (-2, 0, 2, 5))
+    ok33 &= all(abs(pmd_mitm(x) - pmd_br(x)) < 1e-9 for x in (-2, 0, 2, 5))
+    check("T33 MITM == brute 4-bit full-fusion ROC", ok33)
+
+    # T34/T35/T36 Region A/B/C pruning law (s2 + s4/s5)
+    plq1 = c21.SparsePlanner(q4, 1.0, 1.0, b_h=16.0, cross_level=True,
+                             levels=c21.LEVELS4, direct_only=False, delta_c=1.0)
+    # N=1 fresh UAV: x=0, r=0; c1=BH+(1-0)=17, c_dir=BH+(4-0)=20,
+    # c2=BH+(r_max-r_next)=16+3=19 ⇒ c1+c2=36
+    # A: h=19 (c1<=19<20); B: h=25 (20<=25<36); C: h=60
+    sa = c21.phase_support_budget(plq1, 0, 0.0, 0, 19, 512, 1.2)
+    sb = c21.phase_support_budget(plq1, 0, 0.0, 0, 25, 512, 1.2)
+    sc = c21.phase_support_budget(plq1, 0, 0.0, 0, 60, 512, 1.2)
+    ok34 = sa is not None and sa["region"] == "A" and not sa["prune_probe_ok"]
+    # T35/T36 检查的是真正独立的路径（非自比较）：
+    #   B 区：gap=Q_prog-Q_dir（边际 E_dir）vs g_verdict=Σw(R1-E_R-d2)
+    #         （per-branch E_R=E[R(X2)|X1]）——差 = E_R_sum-E_dir（tower 恒等式）
+    #   C 区：gap=E[min(Y,b)]（support 形式）vs g_verdict=Q_prog-Q_dir
+    #         （策略价值形式）——差 = E_R_sum-E_dir（013 §1 恒等式）
+    ok35 = sb is not None and sb["region"] == "B" and \
+           abs(sb["gap"] - sb["g_verdict"]) < 1e-9
+    ok36 = sc is not None and sc["region"] == "C" and \
+           abs(sc["gap"] - sc["g_verdict"]) < 1e-9
+    check("T34 Region A never prunes probe", ok34)
+    check("T35 Region B gap == E[Y]", ok35)
+    check("T36 Region C gap == E[min(Y,b)]", ok36)
+
+    # T37 prune => Q_prog >= Q_dir (constrained dominance, s5)
+    ok37 = True
+    for h in (20, 24, 30, 40, 50, 60, 80, 96):
+        s = c21.phase_support_budget(plq1, 0, 0.0, 0, h, 512, 1.2)
+        if s is None or not s["dir_feas"]:
+            continue
+        if s["prune_probe_ok"] and s["Q_prog"] is not None:
+            ok37 &= s["Q_prog"] >= s["Q_dir"] - 1e-8
+    check("T37 prune => Q_prog >= Q_dir (dominance)", ok37)
+
+    # T38 stratified sampling n0 == n1 exactly
+    H, _L = c21.sample_set_strat(50, c21.SEED_CAL + 900, mm4)
+    ok38 = int((H == 0).sum()) == 50 and int((H == 1).sum()) == 50
+    check("T38 stratified n0 == n1 == n", ok38)
+
+    # T39 J(policy) >= V* at frozen exact-oracle cases (D1 lower-bound)
+    q4b = [c21.NestedQuantizer(i, mm4, 4, c21.LEVELS4) for i in range(4)]
+    pl4o = c21.SparsePlanner(q4b, 1.0, 1.0, b_h=16.0, cross_level=True,
+                             levels=c21.LEVELS4, direct_only=False, delta_c=1.0)
+    ok39 = True
+    for theta, H in [((256, 1.2), 48), ((512, 1.2), 96), ((1024, 1.6), 96)]:
+        rho, eta = theta
+        po = c21.SparsePlanner(q4b, rho * 0.5, rho * math.exp(eta) * 0.5,
+                              b_h=16.0, cross_level=True, levels=c21.LEVELS4,
+                              direct_only=False, delta_c=1.0)
+        v_star, _ = po.solve(0, float(H))
+        j_phase = c21.exact_policy_lagrangian(pl4o, c21.phase_decision_budget,
+                                              rho, eta, 0, H)
+        ok39 &= j_phase >= v_star - 1e-6
+    check("T39 J_Phase >= V* (D1 Lagrangian lower bound)", ok39)
+
     print(f"\n=== {len(PASS)} passed, {len(FAIL)} failed ({time.time()-t0:.0f}s) ===")
     for name, d in FAIL:
         print(f"  FAILED: {name} {d}")
