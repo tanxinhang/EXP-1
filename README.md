@@ -702,8 +702,21 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
     - **G3 paired fixed-N empirical-Bernstein UCB（010 §十）**：MP Thm 4
       plug-in variance、t=log(1/δ)、(n−1) 保守分母——G2 主 bit 认证；
       Hoeffding（D∈[−H,H]）为 sanity envelope。
-    报告：`report/MVS-C_C3e_report.md`（FULL 已生成）、
-    `report/MVS-C_C3e_report.md`。
+    **P0 修复（用户审计 + T56 锁死）**：`_cond_refine_q` 的 memo key 曾
+    漏 (ρ,η,b0,κ)——28 组合校准共享 memo ⇒ 后续组合拿到首个 (ρ,η) 的陈旧
+    Q_cond（实测 Q(128,0.8)=81.0 泄漏给 Q(1024,2.0) 应为 529.0），系统性
+    低估 probe Q ⇒ GPE-EA 过度"继续买证据"（旧报告 H=96 E[N_tx] 2.50 vs
+    1.66、+12.6 bits 正是此污染的方向）。修复：Q 层 key 补全 (x,i,s,conts,
+    ρ,η,b0,κ)；**结构层缓存**（数理依据：om 是状态 x 的唯一函数、转移权重
+    只依赖状态与量化器，均与 (ρ,η,b0,κ) 无关）按 (x,i,s,conts) 缓存
+    (w,om2) 传播序列——修复后校准不再重复算权重。**FULL 重跑决定性结果：
+    GPE-EA ≡ Myopic-All**（θ̂ 均 (256,0.8)；P_FA U95 0.0896/0.0896、P_MD
+    0.3121/0.3121、E[N_tx]、E[B_payload]、E[B|H0/H1] **逐位一致**；
+    E[D]=0.0000，EB U95=0.4195/0.2098 对称）——条件细化在均匀成本
+    (b0=16,κ=1) 下与 one-step **决策级等价**（T50 certificate 全支配
+    剪枝 ⇒ Q_cond≡q1，定理级而非数值巧合）；010 §一/§十二 的判断成立：
+    refinement 价值只在 C4 异质链路成本下才能体现。
+    报告：`report/MVS-C_C3e_report.md`（FULL 已生成，含 P0 修复后数值）。
   - **C4 — Link-Aware Heterogeneous U2U Airtime（已完成，010 §九/§十二；论文 headline）**：
     成本模型从 homogeneous "16+Δr bits" 升级为 **per-UAV airtime**：
         τ_i(r→r') = b0,i + κ_i·(r'−r),
@@ -720,26 +733,21 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
     refinement planning。G2 协议同 C3e-G2/G3（separately calibrated、
     paired CRN、fresh test、paired EB UCB 主认证 + Hoeffding sanity +
     Wilson n0/n1）。
-    **FULL 结果（N_CAL=600/N_TEST=1600/hyp)）**：
-      - positive：θ̂ 均=(256,0.8)，H=96 E[D]=+13.81（EB U95=14.96）、
-        H=48 E[D]=+7.30（U95=8.00）→ **BIT-UNRESOLVED**（GPE-EA-het 在
-        matched-QoS 下比 Myopic-All-het 更贵——因为强 sensing 好链路 UAV
-        的 probe 更值得买，planner 主动多买 evidence：E[B_payload] 5.43 vs
-        5.94 @H=96；买的是更强检测：P_FA U95 0.076 vs 0.092）；
-      - independent：H=96 E[D]=+8.94（U95=9.92）BIT-UNRESOLVED；H=48 双方
-        QoS 未同时认证（Myopic UNCERTAIN）→ QoS-UNRESOLVED；
-      - **anti-correlated（关键）**：H=96 E[D]=−0.13（EB U95=+0.71，点估计
-        GPE 略省但未认证）→ BIT-UNRESOLVED；H=48 E[D]=+3.91 BIT-UNRESOLVED。
-        **机制报告（诚实，与 001 §十六 的简单预期相反）**：
-        corr(E[N_tx,i], κ_i)=**+0.74（正相关！）**——GPE-EA-het 在 matched-
-        QoS 下**没有**把 budget 从"强 sensing 坏链路"UAV 转移到"好链路
-        UAV"：最强 sensing 的坏链路 UAV7（γ=3dB、b0=20、κ=1.2）拿了
-        **70.8% 的 airtime**，而好链路弱 sensing UAV0–3 几乎不被使用
-        （E[N_tx,i]≤0.005）。原因：**matched-QoS（P_MD≤0.40）下弱 sensing
-        好链路 UAV 的组合无法 FEASIBLE**——sensing QoS 可行性约束优先于
-        链路成本，**anti-correlation 不自动诱导重路由**（001 §十六 的
-        机制在"N=8/8-bit/β=0.40"注册刻度下被反例否证，诚实报告，不进
-        论文主叙事；010 §十二 路线下一步 C5 protocol robustness）。
+    **FULL 结果（N_CAL=600/N_TEST=1600/hyp；P0 修复后重跑——决定性）**：
+      - **三 regime 全部 GPE-EA-het ≡ Myopic-All-het 逐位一致**：θ̂ 均
+        (256,0.8)，P_FA U95、P_MD U95、E[N_tx]、E[B_payload]、E[B|H0/H1]
+        完全相同；E[D]=**0.0000**（EB U95=0.4195/0.2098 对称、Hoeffding
+        sanity 4.1540/2.0770）→ **BIT-UNRESOLVED（零差）**。修复前报告的
+        +13.81/+8.94/−0.13 与"GPE-EA-het 更贵/更省"全部是 P0 污染的产物。
+      - **anti-correlated 机制（诚实，与 001 §十六 简单预期相反）**：
+        corr(E[N_tx,i], κ_i)=**+0.74（正相关）**——planner 仍把 budget 集中
+        在最强 sensing 的坏链路 UAV7（γ=3dB、b0=20、κ=1.2，约占 airtime
+        70.8%），好链路弱 sensing UAV0–3 几乎不用（E[N_tx,i]≤0.005）。
+        关键：**matched-QoS（P_MD≤0.40）下弱 sensing 好链路 UAV 组合无法
+        FEASIBLE**——sensing QoS 可行性约束**优先于**链路成本（且该机制对
+        GPE 与 Myopic 同样成立，与规划深度无关）→ **anti-correlation 不
+        自动诱导重路由**（001 §十六 的机制在本注册刻度下被反例否证，诚实
+        报告；010 §十二 下一步 C5 protocol robustness）。
     runner：`run_mvsc04.py`；报告：`report/MVS-C_C4_report.md`、
     `report/smoke/MVS-C_C4_report.md`。回归：T53（link_params 三 regime
     语义）、T54（homogeneous 极限 GPE-het ≡ GPE）、T55（het budget

@@ -122,10 +122,31 @@ def eb_lcb(xs, lo, hi, delta=0.05):
 # ---------------------------------------------------------------------------
 class GPEMemo:
     """Per-run memo 对 _cond_refine_q：on-policy (x,i,s,conts) 有限重复，缓存
-    (Q_cond, pruned) 使 FULL 校准可行（GPE 每决策 ~20× Myopic-All 原始开销）。"""
+    (Q_cond, pruned) 使 FULL 校准可行（GPE 每决策 ~20× Myopic-All 原始开销）。
+
+    **P0 修复（advice/010 续审）**：Q 层缓存 key 必须含 (rho, eta, b0, kappa)——
+    Q_cond 依赖 r_rho(om; rho,eta) 与 c1/c2(b0,kappa)。旧实现 key 只含
+    (x,i,s,conts)，28 组合校准共享 memo ⇒ 后续所有 (ρ,η) 组合拿到首个
+    (ρ,η) 的陈旧 Q（实测 Q(128,0.8)=81.0 泄漏给 Q(1024,2.0) 应为 529.0），
+    系统性低估 probe Q ⇒ GPE-EA 过度"继续买证据"（H=96 E[N_tx] 2.50 vs 1.66
+    的方向），污染 C3e/C4 的 G2 判定。
+
+    同时引入**结构层缓存**（数理依据：后验 odds om 是状态 x 的唯一函数——
+    replace-not-add 下 om = prior + Σ_i ℓ_i(z_i)，与 (ρ,η,b0,κ) **无关**；
+    转移权重 w=P(m'|x,a) 同样只依赖状态与量化器）：把 (w, om2) 传播序列按
+    (x,i,s,conts) 缓存（key 不含 ρ/η），Q 计算时只按当前 (ρ,η) 现算
+    r_rho 与 min/Σ —— 修复后校准 28 组合不再重复计算权重，FULL 可行。"""
 
     def __init__(self):
-        self.d = {}
+        # Q 层（P0 修复：完整 key 含 ρ/η/b0/κ）
+        self.q = {}
+        # 结构层（与 ρ/η/b0/κ 无关的 (w, om) 传播；om 由 x 决定，含 om 校验）
+        self.struct = {}
+
+
+def _tpl_index(tpl_list):
+    """r2 → (c_true, q_budget, cells) 的 dict 索引（替代线性 next 扫描）。"""
+    return {a[0]: a for a in tpl_list}
 
 
 def _cond_refine_q(pl, x, om, i, s, conts, rho, eta, memo=None,
@@ -138,43 +159,76 @@ def _cond_refine_q(pl, x, om, i, s, conts, rho, eta, memo=None,
     Q_cond 精确等于 one-step q1_fast —— argmin 不变、只省计算（T50）。
     （010 §八 的 envelope g^{s,t}≥0 是期望级整路径支配，不蕴含分支wise
     证书；G1 报告 g^{s,t}，本函数用分支wise 证书，二者都如实报告。）
+
+    P0 修复（见 GPEMemo docstring）：Q 层 key 补全 (rho,eta,b0,kappa)；
+    结构层缓存 (w,om2) 序列（不含 ρ/η），内含 om 一致性校验。
     """
-    key = (int(x), int(i), int(s), tuple(int(t) for t in conts))
-    if memo is not None and key in memo.d:
-        return memo.d[key]
+    qkey = (int(x), int(i), int(s), tuple(int(t) for t in conts),
+            float(rho), float(eta), float(b0), float(kappa))
+    if memo is not None and qkey in memo.q:
+        return memo.q[qkey]
     zi = (x // pl.powers[i]) % BASE_B
     r, _m = z_decode_b(zi)
-    tpl_i = pl._tpl[i][zi]
-    prog_tpl = next((a for a in tpl_i if a[0] == s), None)
+    tpl_i = _tpl_index(pl._tpl[i][zi])
+    prog_tpl = tpl_i.get(s)
     if prog_tpl is None or not conts:
         q = q1_fast(pl, x, om, i, s, rho, eta)
         if memo is not None:
-            memo.d[key] = (q, True)
+            memo.q[qkey] = (q, True)
         return q, True
+    # 结构层：与 (ρ,η,b0,κ) 无关的 (w1, om1, {t:(w2s, om2s)}) 传播
+    skey = (int(x), int(i), int(s), tuple(int(t) for t in conts))
+    struct = None
+    if memo is not None:
+        struct = memo.struct.get(skey)
+        if struct is not None and abs(struct["om"] - om) > 1e-9:
+            struct = None      # om 不一致（防御：om 应=pl.omega(x)）
+    if struct is None:
+        lp = -math.log1p(math.exp(-om))
+        lq = -math.log1p(math.exp(om))
+        branches = []
+        for (m1, lp0c1, lp1c1) in prog_tpl[3]:
+            w1 = _w(lp, lq, lp1c1, lp0c1)
+            z1 = z_code_b(s, m1)
+            om1 = om + pl._llr_i[i][z1] - pl._llr_i[i][zi]
+            # lp1/lq1 只依赖 om1（分支级）：提升到 t 循环外，每分支算一次
+            lp1 = -math.log1p(math.exp(-om1))
+            lq1 = -math.log1p(math.exp(om1))
+            tpl1 = _tpl_index(pl._tpl[i][z1])
+            cont = {}
+            for t in conts:
+                ref = tpl1.get(t)
+                if ref is None:
+                    continue
+                w2s = []
+                om2s = []
+                for (m2, lp0c2, lp1c2) in ref[3]:
+                    w2 = _w(lp1, lq1, lp1c2, lp0c2)
+                    z2 = z_code_b(t, m2)
+                    om2 = om1 + pl._llr_i[i][z2] - pl._llr_i[i][z1]
+                    w2s.append(w2)
+                    om2s.append(om2)
+                cont[t] = (w2s, om2s)
+            branches.append((w1, om1, cont))
+        struct = {"om": om, "r": r, "branches": branches}
+        if memo is not None:
+            memo.struct[skey] = struct
+    # Q 层：按当前 (ρ,η,b0,κ) 现算 r_rho/min/Σ；权重从结构层复用
     c1 = b0 + kappa * (s - r)
-    lp = -math.log1p(math.exp(-om))
-    lq = -math.log1p(math.exp(om))
     E1 = 0.0
     wsum = 0.0
     all_stop_best = True
-    for (m1, lp0c1, lp1c1) in prog_tpl[3]:
-        w1 = _w(lp, lq, lp1c1, lp0c1)
-        z1 = z_code_b(s, m1)
-        om1 = om + pl._llr_i[i][z1] - pl._llr_i[i][zi]
+    for (w1, om1, cont) in struct["branches"]:
         R1 = r_rho(om1, rho, eta)
         cont_vals = []
         for t in conts:
-            ref = next((a for a in pl._tpl[i][z1] if a[0] == t), None)
-            if ref is None:
+            ent = cont.get(t)
+            if ent is None:
                 continue
             c2 = b0 + kappa * (t - s)
-            lp1 = -math.log1p(math.exp(-om1))
-            lq1 = -math.log1p(math.exp(om1))
+            w2s, om2s = ent
             E_R = 0.0
-            for (m2, lp0c2, lp1c2) in ref[3]:
-                w2 = _w(lp1, lq1, lp1c2, lp0c2)
-                z2 = z_code_b(t, m2)
-                om2 = om1 + pl._llr_i[i][z2] - pl._llr_i[i][z1]
+            for (w2, om2) in zip(w2s, om2s):
                 E_R += w2 * r_rho(om2, rho, eta)
             cont_vals.append(c2 + E_R)
         best_cont = min(cont_vals) if cont_vals else R1
@@ -185,10 +239,10 @@ def _cond_refine_q(pl, x, om, i, s, conts, rho, eta, memo=None,
     if Q_cond is None:
         q = q1_fast(pl, x, om, i, s, rho, eta)
         if memo is not None:
-            memo.d[key] = (q, True)
+            memo.q[qkey] = (q, True)
         return q, True
     if memo is not None:
-        memo.d[key] = (Q_cond, all_stop_best)
+        memo.q[qkey] = (Q_cond, all_stop_best)
     return Q_cond, all_stop_best
 
 

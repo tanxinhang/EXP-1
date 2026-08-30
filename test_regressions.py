@@ -1180,7 +1180,8 @@ def run():
         n54 += 1
         ok54 &= (a_h == a_e)
     check("T54 gpe_het(b0=16,κ=1) ≡ gpe_decision actions", ok54,
-          f"{n54} random states; memo_h={len(memo_h.d)}")
+          f"{n54} random states; memo_h_q={len(memo_h.q)} "
+          f"struct={len(memo_h.struct)}")
 
     # T55 (010 §九): heterogeneous budget bookkeeping — every episode satisfies
     # B = Σ_i(b0_i·N_tx,i + κ_i·pay_i) ≤ H pathwise (deterministic identity,
@@ -1206,6 +1207,45 @@ def run():
             max_b55 = max(max_b55, b)
     check("T55 C4 het budget identity ≤ H (3 regimes)", ok55,
           f"viol={viol55} maxB={max_b55:.1f}")
+
+    # T56 (P0 regression, user-audit): the Q_cond memo key must include
+    # (rho, eta, b0, kappa) — otherwise a shared memo across the 28-combo
+    # calibration loop leaks the FIRST (rho,eta)'s stale Q_cond into every
+    # later combo (reproduced: Q(128,0.8)=81.0 leaked to Q(1024,2.0), fresh
+    # value = 529.0), systematically understating probe Q and making GPE-EA
+    # over-continue (H=96 E[N_tx] 2.50 vs 1.66 direction).  T50/T54 use a
+    # fixed (256,0.8), so they cannot catch this; T56 pins the cross-(rho,eta)
+    # distinctness AND the fresh-value equality with the identical memo
+    # (structure layer must stay shared — om(x) is rho/eta-free, so the
+    # (w,om) propagation is cached once and reused, only the r_rho/stopping
+    # sum is recomputed per combo).
+    print("\nT56 P0: _cond_refine_q memo key includes (rho,eta,b0,kappa)")
+    x56, om56, i56, s56 = 0, 0.0, 0, 1
+    conts56 = [t for t in g2.LEVELS
+               if t > s56 and 16.0 + (t - s56) <= 96.0 - 16.0 + 1e-9]
+    memo56 = c3e.GPEMemo()
+    q56a = c3e._cond_refine_q(pl46, x56, om56, i56, s56, conts56,
+                              128.0, 0.8, memo=memo56)[0]
+    q56b = c3e._cond_refine_q(pl46, x56, om56, i56, s56, conts56,
+                              1024.0, 2.0, memo=memo56)[0]
+    q56c = c3e._cond_refine_q(pl46, x56, om56, i56, s56, conts56,
+                              1024.0, 2.0, memo=memo56)[0]
+    q56d = c3e._cond_refine_q(pl46, x56, om56, i56, s56, conts56,
+                              1024.0, 2.0, memo=c3e.GPEMemo())[0]
+    # distinct across (rho,eta) with the SAME shared memo (P0 fix)
+    ok56 = (abs(q56a - q56b) > 1e-6
+            # same combo: memo returns identical value (hit)
+            and abs(q56b - q56c) < 1e-9
+            # shared-memo value == fresh-memo value (no stale leak)
+            and abs(q56b - q56d) < 1e-9
+            # structure layer shared across combos (om(x) rho-free)
+            and len(memo56.struct) >= 1
+            and len(memo56.q) >= 2)
+    check("T56 _cond_refine_q cross-(rho,eta) memo correctness",
+          ok56,
+          f"Q(128,0.8)={q56a:.1f} Q(1024,2.0)shared={q56b:.1f} "
+          f"fresh={q56d:.1f} |D|={abs(q56a-q56b):.1f} "
+          f"struct={len(memo56.struct)} q={len(memo56.q)}")
 
     print(f"\n=== {len(PASS)} passed, {len(FAIL)} failed ({time.time()-t0:.0f}s) ===")
     for name, d in FAIL:
