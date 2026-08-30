@@ -1247,6 +1247,115 @@ def run():
           f"fresh={q56d:.1f} |D|={abs(q56a-q56b):.1f} "
           f"struct={len(memo56.struct)} q={len(memo56.q)}")
 
+    # ================================= C5 protocol robustness (001 §二十六.1)
+    # T57: ARQ-collapsed expectation identity — the extended cost
+    # b0'=(b0+b_ctrl)/p_succ, kappa'=kappa/p_succ keeps c̄(Δr)=(b0+b_ctrl+
+    # kappa Δr)/p_succ affine (010 §七 envelope holds exactly); and
+    # collapsed E[B] ≈ explicit E[B] (geometric retries E[retries]=1/p_succ,
+    # SystemModel §41 B1 vs B2; budget truncation/stop timing makes the small
+    # residual difference).  Deterministic parts: affine identity + no budget
+    # violations in either sim mode.
+    print("\nT57 C5 ARQ collapsed affine + B1/B2 equivalence (001 §26.1, SM §41)")
+    import run_mvsc05 as c5
+    # B1/B2 验证用强 sensing 4-UA（anti 下坏链路但 sensing 有价值 → root 有
+    # 行动；弱 sensing 组 root 即 STOP 正确反映 refinement 价值为负，但会
+    # 使 B1/B2 记账为空，无法验证等价性）
+    mm57 = c21.GaussianDetectorModel(g2.GAMMA_B[-4:], (0.5, 0.5))
+    qu57 = [c21.NestedQuantizer(i, mm57, r_max=8, levels=g2.LEVELS)
+            for i in range(4)]
+    pwc57 = [c21.BASE_B ** i for i in range(4)]
+    pl57 = c21.SparsePlanner(qu57, 1.0, 1.0, b_h=16.0, cross_level=True,
+                             levels=g2.LEVELS, delta_c=1.0)
+    b057, k57 = c4.link_params("anti", g2.GAMMA_B[-4:])
+    # affine identity: b0e + ke*Δr == (b0 + b_ctrl + k*Δr)/p_succ
+    ok57aff = True
+    for psu in (1.0, 0.95, 0.9, 0.8):
+        for bct in (0.0, 4.0, 8.0):
+            b0e, ke = c5.extended_params(b057, k57, psu, bct)
+            for dr in (1.0, 4.0, 8.0):
+                lhs = b0e[0] + ke[0] * dr
+                rhs = (b057[0] + bct + k57[0] * dr) / psu
+                ok57aff &= abs(lhs - rhs) < 1e-9
+    H57, L57 = c5.sample_set(120, 5701, mm57)
+    ok57b = True
+    for psu in (0.95, 0.9, 0.8):
+        r = c5.arq_equivalence_check(
+            pl57, list(b057), list(k57), psu, 0.0, 96, L57, qu57, pwc57,
+            5705, (256.0, 0.8),
+            (lambda pl, x, om, h, rho, eta, p=psu:
+             c4.myopic_all_het(pl, x, om, h, rho, eta,
+                               c5.extended_params(b057, k57, p, 0.0)[0],
+                               c5.extended_params(b057, k57, p, 0.0)[1])))
+        ok57b &= r["viol"] == 0
+        # expectation identity: E_explicit ≈ E_collapsed (geometric retries)
+        ok57b &= abs(r["E_collapsed"] - r["E_explicit"]) < 6.0
+    check("T57 ARQ collapsed affine + B1/B2 E[B] equivalence",
+          ok57aff and ok57b,
+          f"affine={ok57aff} viol/equiv={ok57b}")
+
+    # T58: correlation sampler — empirical corr(L_a,L_b|H) tracks rho
+    # (common factor), and rho=0 reduces to the independent sampler.
+    print("\nT58 C5 evidence-correlation sampler (common factor)")
+    mm58 = c21.GaussianDetectorModel(g2.GAMMA_B, (0.5, 0.5))
+    rho58 = 0.6
+    H58, L58 = c5.sample_set_corr(40000, 5801, mm58, rho58)
+    iy = H58 == 1
+    cL = np.corrcoef(L58[iy].T)
+    emp = float(np.mean([cL[0, j] for j in range(1, 8)]))
+    # (true pairwise LL correlation of the common factor is rho, since
+    # corr(L_i,L_j)=rho after scaling by the per-UAV gain)
+    H0, L0 = c5.sample_set_corr(20000, 5802, mm58, 0.0)
+    iy0 = H0 == 1
+    cL0 = np.corrcoef(L0[iy0].T)
+    emp0 = float(np.mean([cL0[0, j] for j in range(1, 8)]))
+    ok58 = (abs(emp - rho58) < 0.05 and abs(emp0) < 0.05)
+    check("T58 corr sampler: empirical rho tracking", ok58,
+          f"rho=0.6 emp={emp:.3f} rho=0 emp0={emp0:.3f}")
+
+    # T59: calibration mismatch semantics — planner(model) message-LLR ≠
+    # true-LLR when Δγ≠0 (the model quantizer sees a shifted mixture), and
+    # Δγ=0 must recover the true quantizer (identity).
+    print("\nT59 C5 calibration-mismatch semantics")
+    dg59 = 3.0
+    mm_mod = c21.GaussianDetectorModel(np.asarray(g2.GAMMA_B) + dg59)
+    qu_mod = [c21.NestedQuantizer(i, mm_mod, r_max=8, levels=g2.LEVELS)
+              for i in range(8)]
+    lrr_mod0 = qu_mod[0].llr[1]            # model 1-bit message LLRs (Δγ=3)
+    mm_tr = c21.GaussianDetectorModel(g2.GAMMA_B)
+    qu_tr = [c21.NestedQuantizer(i, mm_tr, r_max=8, levels=g2.LEVELS)
+             for i in range(8)]
+    lrr_tr0 = qu_tr[0].llr[1]              # true 1-bit message LLRs
+    # Δγ≠0: model quantizer sees a shifted mixture ⇒ message LLRs differ;
+    # the 1-bit cell structure (2 cells) is invariant.
+    ok59 = (not np.allclose(lrr_mod0, lrr_tr0, atol=1e-4)
+            and len(qu_tr[0].llr[1]) == 2
+            and len(qu_mod[0].llr[1]) == 2)
+    check("T59 mismatch: model LLR ≠ true LLR (Δγ≠0)", ok59,
+          f"model max|Δ-LLR| vs true = {np.max(np.abs(lrr_mod0-lrr_tr0)):.3f}")
+
+    # T60: decision-side params (p_succ, b_ctrl) enter the memo Q-key —
+    # same (x,i,s,conts) but different (b0',kappa') give different Q_cond
+    # with the SAME memo (extends T56 to the C5 extended params).
+    print("\nT60 C5 decision params (p_succ/b_ctrl) in memo Q-key")
+    x60, om60, i60, s60 = 0, 0.0, 0, 1
+    conts60 = [t for t in g2.LEVELS
+               if t > s60 and 16.0 + (t - s60) <= 96.0 - 16.0 + 1e-9]
+    memo60 = c3e.GPEMemo()
+    b0e0, ke0 = c5.extended_params(b057, k57, 1.0, 0.0)
+    b0e1, ke1 = c5.extended_params(b057, k57, 0.8, 8.0)
+    q60a = c3e._cond_refine_q(pl46, x60, om60, i60, s60, conts60, 256.0, 0.8,
+                              memo=memo60, b0=b0e0[i60], kappa=ke0[i60])[0]
+    q60b = c3e._cond_refine_q(pl46, x60, om60, i60, s60, conts60, 256.0, 0.8,
+                              memo=memo60, b0=b0e1[i60], kappa=ke1[i60])[0]
+    q60c = c3e._cond_refine_q(pl46, x60, om60, i60, s60, conts60, 256.0, 0.8,
+                              memo=memo60, b0=b0e1[i60], kappa=ke1[i60])[0]
+    ok60 = (abs(q60a - q60b) > 1e-6          # different (b0',kappa') -> diff Q
+            and abs(q60b - q60c) < 1e-9      # same params -> memo hit
+            and len(memo60.q) >= 2)
+    check("T60 C5 (p_succ,b_ctrl) → (b0',κ') in memo key",
+          ok60,
+          f"Q(base)={q60a:.1f} Q(p=0.8,b8)={q60b:.1f} memo_q={len(memo60.q)}")
+
     print(f"\n=== {len(PASS)} passed, {len(FAIL)} failed ({time.time()-t0:.0f}s) ===")
     for name, d in FAIL:
         print(f"  FAILED: {name} {d}")

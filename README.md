@@ -365,7 +365,8 @@ Exp-1/
 ├── run_mvsc03c.py          # MVS-C C3c：三层 feasibility frontier（C3d 修正：L1 constructive certificate / L2 per-method hull + 显式 mixture / L3 StaticProg 0-7 unique）
 ├── run_mvsc03e.py          # MVS-C C3e：Generalized Phase-Envelope（G0 activation audit + G1 generalized r<s<t 定理 + G2 GPE-EA vs Myopic-All matched Gate + G3 paired EB UCB）
 ├── run_mvsc04.py           # MVS-C C4：Link-Aware Heterogeneous U2U Airtime（τ_i=b0,i+κ_i(r'−r)，positive/independent/anti-correlated 三 regime，GPE-EA-het vs Myopic-All-het matched-action 认证 + anti 重路由机制报告）
-├── test_regressions.py     # 正式 regression test suite（T01-T52，all checks PASS）
+├── run_mvsc05.py           # MVS-C C5：Protocol Robustness（p_succ ARQ-collapsed/control overhead 成本 stress + Δγ calibration mismatch + ρ evidence correlation；含 B1/B2 explicit 等价验证、mismatch 证书剪枝保真度审计）
+├── test_regressions.py     # 正式 regression test suite（T01-T60，all checks PASS）
 ├── smoke_test.py           # 核心模块快速冒烟测试
 ├── requirements.txt
 ├── opmvs/                  # MVS-A 实现包
@@ -436,6 +437,8 @@ python run_mvsc03e.py         # MVS-C C3e Generalized Phase-Envelope（G0 activa
 python run_mvsc03e.py --smoke # C3e 冒烟（约 1–2 分钟）
 python run_mvsc04.py         # MVS-C C4 Link-Aware Heterogeneous U2U Airtime（τ_i=b0,i+κ_i(r'−r)，positive/independent/anti 三 regime，GPE-EA-het vs Myopic-All-het matched-action 认证 + anti 机制报告；FULL 约 20–30 分钟）
 python run_mvsc04.py --smoke # C4 冒烟（约 2–3 分钟）
+python run_mvsc05.py         # MVS-C C5 Protocol Robustness（p_succ ARQ-collapsed/control overhead + Δγ mismatch + ρ correlation；B1/B2 等价验证 + 证书剪枝保真度审计；FULL 约 20–35 分钟）
+python run_mvsc05.py --smoke # C5 冒烟（约 4–5 分钟）
 python test_regressions.py   # regression suite（约 6–8 分钟；运行结束打印 all checks PASS）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
@@ -765,8 +768,30 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
     （per-UAV E[N_tx,i] 与 E[B,i] 占比 vs 链路质量：planner 自动把 budget
     从"强 sensing 但坏链路"UAV 转移到"好链路（哪怕中等 sensing）"UAV）。
     runner：`run_mvsc04.py`；报告：`report/MVS-C_C4_report.md`（FULL/SMOKE）。
-  - **C5 — protocol robustness（002 §十二/001 §二十六）**：p_succ∈{1,0.95,
-    0.9,0.8}、control overhead、calibration mismatch、evidence correlation；
+  - **C5 — Protocol Robustness（已完成，001 §二十六.1；runner `run_mvsc05.py`）**：
+    四类 stress 叠加到 C4 同一 matched-action 协议（anti regime、GPE-EA-het
+    vs Myopic-All-het、separately calibrated、paired CRN、fresh test、paired
+    EB UCB + Hoeffding + Wilson n0/n1）：
+    - **(1) packet success（ARQ collapsed）+ control overhead**：期望重传成本
+      c̄(Δr)=(b0+b_ctrl+κΔr)/p_succ **仍为 affine**（b0'=(b0+b_ctrl)/p_succ、
+      κ'=κ/p_succ）⇒ 010 §七 envelope 精确保持（T57）；B1(collapsed) vs
+      B2(explicit) 期望成本等价（viol=0，E[col]≈E[exp]，几何重传）；全
+      p_succ/b_ctrl 组合 **E[D]=0.0000**（GPE-het ≡ Myopic-het 维持，bit 级）。
+    - **(2) calibration mismatch Δγ**：planner 用 model（γ+Δγ）量化器/消息
+      PMF/ℓ/证书、世界 true 采样（SystemModel §65 部署语义）；matched G2 仍
+      E[D]=0（refinement 零价值维持），但 **证书剪枝保真度方向性退化**：
+      Δγ=+3dB 假剪率 **29.1%**（高估 sensing → 过度剪枝）、Δγ=+1dB 9.4%；
+      Δγ=−3dB 漏剪率 **40%**（低估 → 保守漏剪）、Δγ=−1dB 9.8%（T59 锁
+      mismatch LLR 分离）——**P0 教训的平行面：模型参数错误 ⇒ 剪枝证书失真，
+      部署需审计/保守化**。
+    - **(3) evidence correlation ρ**：世界 common-factor 相关、planner 保持
+      独立模型假设（T58）；ρ=0.3 时 GPE 略省（E[D]=−0.137）但 EB U95=0.74
+      未认证、双方 QoS UNCERTAIN；ρ=0.6 无可行 θ̂——证据相关削弱融合
+      （独立性假设被破坏的代价，诚实记录）。
+    - **数理设计（P0 教训正面应用）**：决策侧参数（ρ/η/b0/κ/p_succ/b_ctrl）
+      经 (b0',κ') 合成进入 memo Q-key（T60；跨组合无陈旧缓存）；世界侧参数
+      （Δγ 换 planner 实例、ρ 只改采样）不进决策 memo。
+    报告：`report/MVS-C_C5_report.md`（FULL 2783s）、`report/smoke/…`。
   - **B1**（fading/packet errors）仍最后；
   **论文四 Gate（001 §二十七，经 002 §三 修正为 D1/D2）**：A 数学正确性 /
   B 机制必要性（Phase-FG<Direct8 且 <Static Progressive）/ C 通信现实性
