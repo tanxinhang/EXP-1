@@ -362,8 +362,9 @@ Exp-1/
 ├── run_mvsc021.py          # MVS-C C2.1：budget-aware closure（matched ρ-homotopy + MITM + Gate D1/D2）
 ├── run_mvsc03a.py          # MVS-C C3a：migration gate（复现 G2 anchor）+ contract hardening（Myopic-PJ/StaticProg/convex-hull/exhaustive 4-bit certificate）
 ├── run_mvsc03b.py          # MVS-C C3b：五方法四层因果对照（Phase-PJ/Myopic-PJ/Myopic-All/Direct8/StaticProg）
-├── run_mvsc03c.py          # MVS-C C3c：三层 feasibility frontier（L1 Physical/L2 Policy-class/L3 Controller-search）
-├── test_regressions.py     # 正式 regression test suite（all checks PASS）
+├── run_mvsc03c.py          # MVS-C C3c：三层 feasibility frontier（C3d 修正：L1 constructive certificate / L2 per-method hull + 显式 mixture / L3 StaticProg 0-7 unique）
+├── run_mvsc03e.py          # MVS-C C3e：Generalized Phase-Envelope（G0 activation audit + G1 generalized r<s<t 定理 + G2 GPE-EA vs Myopic-All matched Gate + G3 paired EB UCB）
+├── test_regressions.py     # 正式 regression test suite（T01-T52，all checks PASS）
 ├── smoke_test.py           # 核心模块快速冒烟测试
 ├── requirements.txt
 ├── opmvs/                  # MVS-A 实现包
@@ -378,6 +379,7 @@ Exp-1/
 │   ├── sparse.py           # MVS-B0: sparse tuple-state planner（279^8 不建表）
 │   ├── rbl_cr.py           # B0.3/B0.3c: CR-RBL（LatentWorld paired CRN + STOP 证书 + exact_qa_pi_b）
 │   ├── rbl_eb.py           # B0.4: pairwise-difference EB-CS planner（betting CS + candidate-challenger）
+│   ├── phase_boundary.py   # B0.4b/B0.7/C3e-G1: 反馈粒度相变定理 + generalized r&lt;s&lt;t envelope（010 §七）
 │   ├── eval_exact.py       # R1: 精确前向概率传播 + G1a/G1b + 精确 P_D,max
 │   ├── baselines.py        # B0–B11 + 公平基线精确 table-policy 构建
 │   ├── mc.py               # 向量化 Monte Carlo + 随机化 Neyman-Pearson 评估
@@ -427,9 +429,11 @@ python run_mvsc03a.py         # MVS-C C3a Migration Gate + contract hardening（
 python run_mvsc03a.py --smoke # C3a 冒烟（约 1 分钟）
 python run_mvsc03b.py         # MVS-C C3b Causal Four-Layer Comparison（005.md §十八：Phase-PJ/Myopic-PJ/Myopic-All/Direct8/StaticProg 四层对照；FULL 约 11 分钟）
 python run_mvsc03b.py --smoke # C3b 冒烟（约 1.5 分钟）
-python run_mvsc03c.py         # MVS-C C3c Three-Layer Feasibility Frontier（005.md §十九：L1 Physical/L2 Policy-class/L3 Controller-search；FULL 约 9 分钟）
+python run_mvsc03c.py         # MVS-C C3c Three-Layer Feasibility Frontier（C3d 修正：L1 constructive certificate / L2 per-method hull + explicit mixture / L3 StaticProg 0/7 unique；FULL 约 9 分钟）
 python run_mvsc03c.py --smoke # C3c 冒烟（约 1 分钟）
-python test_regressions.py   # regression suite（约 5–7 分钟；运行结束打印 all checks PASS）
+python run_mvsc03e.py         # MVS-C C3e Generalized Phase-Envelope（G0 activation audit + G1 generalized r<s<t 定理 + G2 GPE-EA vs Myopic-All matched Gate + G3 paired EB UCB；SMOKE 约 1–2 分钟、FULL 约 15–30 分钟）
+python run_mvsc03e.py --smoke # C3e 冒烟（约 1–2 分钟）
+python test_regressions.py   # regression suite（约 6–8 分钟；运行结束打印 all checks PASS）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
 python run_mvsa_r11.py --smoke
@@ -653,18 +657,50 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
     ladder（007 审计：消除 QoS-dual R≤min Q 的 root 全停退化，T44 锁定）。
     报告：`report/MVS-C_C3b_report.md`（FULL）、
     `report/smoke/MVS-C_C3b_report.md`。
-  - **C3c — Feasibility frontier（已完成，005 §十九 三层）**：**L1 Physical
-    PASS**（预算内最大 evidence：4 最强 SNR UAV 8-bit，cost 96=H，MITM 精确
-    ROC P_MD=0.1072≤0.40；4 弱 UAV 也达标 0.3633——物理层可行，T45 锁定）；
-    **L2 Policy-class PASS**（C3b 四方法 θ̂ 点 Wilson U95 均 FEASIBLE，
-    两两 randomized mixture 6/6 进入 QoS 象限——deterministic
-    policy-class feasible，升级 C3a 点估计为 U95 口径）；**L3
-    Controller-search 4/5**（Phase-PJ/Myopic-PJ/Myopic-All/Direct8
-    registered-grid feasible；StaticProg 0/28 registered-grid infeasible——
-    但 L1/L2 已证整体可行，StaticProg 的 NO 是网格/控制器层，**非物理
-    层**）。三层归因闭环：以后 INFEASIBLE 可明确区分 physical /
-    policy-family / registered-grid。报告：`report/MVS-C_C3c_report.md`
-    （FULL）、`report/smoke/MVS-C_C3c_report.md`。
+  - **C3c — Feasibility frontier（已完成；C3d 依 advice/010.md §三-§六
+    修正 L2/L1/StaticProg 口径）**：三层：**L1 Constructive Physical
+    Feasibility Certificate**（010 §六 改名：构造型最大 evidence 配置
+    4 强 SNR UAV 8-bit cost 96=H、MITM ROC P_MD=0.1072≤0.40；4 弱 UAV
+    0.3633 也达标——PASS；**构造 FAIL 不蕴含 physical infeasible**，需
+    budgeted max-evidence oracle）；**L2 per-method registered convex hull**
+    （010 §三 P0 修正：对**每个方法自身** conv{v_θ^m: θ∈Θ_m}，旧版跨方法
+    混合且直接排除无 θ̂ 的 StaticProg 是逻辑缺口；deterministic FEASIBLE 数
+    + 自身网格 2-point mixture（fractional Wilson U95 仅作近似证据）+ 在
+    **全新 test worlds 上显式 Bernoulli-λ mixture**（整数 kfa/kmd、Wilson
+    n0/n1 分离）正式认证（010 §四））；**L3 Controller-search**：各方法
+    自身 FEASIBLE 数 + θ̂，**StaticProg 改 0/7 unique 口径**（010 §五：ρ
+    不参与策略 ⇒ 4ρ 重复 ⇒ 7 个唯一阈值策略），撤掉"无可行点本身即
+    adaptive 必要性证据"表述。报告：`report/MVS-C_C3c_report.md`（FULL）、
+    `report/smoke/MVS-C_C3c_report.md`。
+  - **C3d — 并入 C3c runner（010 §十二：P0 立即，已完成）**：n0/n1 分离
+    （eval_decide 返回 n1、kmd 用 n1 做 Wilson 分母，T47）、L1 改名
+    constructive certificate、per-method hull（T51 单元测试）、StaticProg
+    7-unique 口径（T48）。
+  - **C3e — Generalized Phase-Envelope Evidence Acquisition（已完成，
+    advice/010.md §七-§十二）**：
+    - **G0 Phase activation audit**：θ̂=(256,0.8) 冻结下 Phase-PJ vs
+      Myopic-PJ——**action-change rate = 0**（两方法决策处处一致，010 §一
+      结论复现）；P(Q_phase≠Q_myopic)≈0.61 仅 Q 值层激活、probe 76% 被
+      pruning（010 §二 机制解释：差异被剪/不改变 argmin）；
+    - **G1 generalized r<s<t envelope 定理（010 §七）**：link-affine
+      c_i(r→q)=b0+κ(q−r) 下 Q_prog^{s,t}−Q_dir^t == E[min{Y_{i,s,t}, b0}]，
+      Y=R(X_s)−E[R(X_t)|X_s]−κ(t−s)；Gate 全 PASS：identity 1.75e-13、
+      tower 1.71e-13、derivative=survival 6.98e-12、b* 三情形 1313/1313、
+      与 c21.phase_support_budget 的 (next,max) 特殊情形 440/440 一致
+      （T46）；开发中揪出 generalized support 7-tuple 的 Y 索引 bug
+      （idx 6 而非 5）——G1a 由 14.0 修正到 1.75e-13；
+    - **G2 matched-action 论文 Gate（010 §八/§十二）**：新 Proposed
+      **GPE-EA** = full action set（与 Myopic-All 相同 A={(i,s): s>r_i}）
+      + conditional-refinement Q（probe 用 c(r→s)+E[min{R(X_s),
+      min_t(c(s→t)+E[R(X_t)|X_s])}]，certificate 证明全 continuation 被
+      支配时精确退化为 one-step，T50）；separately calibrated、paired CRN、
+      fresh test（G2 017 协议）；SMOKE 下 Myopic-All 无 FEASIBLE θ̂ ⇒
+      QoS-UNRESOLVED（cal worlds 不足；**FULL N_CAL=600 才是主判定**）；
+    - **G3 paired fixed-N empirical-Bernstein UCB（010 §十）**：MP Thm 4
+      plug-in variance、t=log(1/δ)、(n−1) 保守分母——G2 主 bit 认证；
+      Hoeffding（D∈[−H,H]）为 sanity envelope。
+    报告：`report/MVS-C_C3e_report.md`（SMOKE 已生成；FULL 待跑，
+    `report/smoke/MVS-C_C3e_report.md`）。
   - **C4 — N=8 heterogeneous U2U（论文 headline，002 §十二）**：link-aware
     c_{i,r→r'}=c_{ctrl,i}+c_{payload,i}（airtime 化或 retry-collapsed），
     sensing/link **positive / independent / anti-correlation** regime；

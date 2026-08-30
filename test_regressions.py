@@ -40,6 +40,18 @@ not a tuning issue.  The suite covers:
       homogeneous regime (conditional-refinement value ~0, 005 §18)
   T44 StaticProg |Omega|>=eta stop (007 fix: no all-stop degeneration)
   T45 C3c L1 physical feasibility: in-budget 4x8-bit MITM P_MD <= beta
+  T46 C3e-G1 generalized r<s<t envelope identity + tower + derivative +
+      b* classification + (next,max) special-case consistency
+      (advice/010.md §七; generalized 7-tuple Y at index 6)
+  T47 C3d n0/n1 split: eval_decide reports n1, kmd uses n1 (010 §十一)
+  T48 StaticProg 4rho x 7eta grid == 7 unique threshold policies (010 §五)
+  T49 GPE-EA/Myopic-All shared legal action space (010 §八 matched-action)
+  T50 GPE conditional-refinement Q: Q_cond <= q1; certificate-pruned =>
+      exact equality (010 §八)
+  T51 C3d per-method registered-hull unit: hull-enter vs hull-infeasible
+      logic with Wilson U95 (010 §三)
+  T52 C3e-G0 audit accounting: regions sum == n_probe_feasible, rates in
+      [0,1] (010 §十二 G0)
 
 Deterministic invariants (T01-T15, T17a, T18, T20 identity part): a failure is a bug.
 Statistical audits (T16, T17b, T19, T20 variance part): assertions carry explicit
@@ -954,6 +966,172 @@ def run():
     ok45, rows45 = c3c.physical_feasibility(mmc, quc)
     ok45 &= rows45[0]["ok"] and rows45[0]["cost"] <= 96.0 + 1e-9
     check("T45 C3c L1 physical feasibility (MITM, in-budget 4x8-bit)", ok45)
+
+    # ============================================================= C3d/C3e
+    # (advice/010.md §三-§十二：per-method L2 hull、n0/n1、StaticProg 7
+    # unique、generalized r<s<t envelope、GPE-EA matched-action、EB UCB)
+    import run_mvsc03c as c3c
+    import run_mvsc03e as c3e
+    from opmvs import phase_boundary as pb
+
+    # T46 (010 §七): generalized r<s<t envelope identity + tower over random
+    # reachable states on an N=4 8-bit ladder, all (s,t) pairs x (b0,kappa)
+    # corners.  Deterministic invariant: max|g - (Q_prog-Q_dir)| < 1e-9 and
+    # max|E[E_R]-E_dir| < 1e-9.
+    print("\nT46 C3e-G1 generalized r<s<t envelope identity (010 §七)")
+    mm46 = c21.GaussianDetectorModel([-1.0, 1.0, 3.0, 5.0], (0.5, 0.5))
+    qu46 = [c21.NestedQuantizer(i, mm46, r_max=8, levels=g2.LEVELS)
+            for i in range(4)]
+    pw46 = [c21.BASE_B ** i for i in range(4)]
+    pl46 = c21.SparsePlanner(qu46, 1.0, 1.0, b_h=16.0, cross_level=True,
+                             levels=g2.LEVELS, delta_c=1.0)
+    H46 = np.random.default_rng(7001).integers(0, 2, 60)
+    L46 = mm46.sample_llr(H46, np.random.default_rng(7002))
+    st46 = c3e._reachable_states(pl46, qu46, pw46, L46, 20)
+    g46 = c3e.generalized_envelope_gates(pl46, st46)
+    ok46 = (g46["max_identity_dev"] < 1e-9
+            and g46["max_tower_dev"] < 1e-9
+            and g46["max_deriv_dev"] < 1e-6
+            and g46["n_bstar"] > 0 and g46["n_bstar_ok"] == g46["n_bstar"]
+            and g46["n_special"] > 0
+            and g46["n_special_ok"] == g46["n_special"]
+            and g46["max_identity_dev_special"] < 1e-9)
+    check("T46 generalized envelope identity/tower/deriv/b*/special",
+          ok46,
+          f"id={g46['max_identity_dev']:.1e} tw={g46['max_tower_dev']:.1e} "
+          f"der={g46['max_deriv_dev']:.1e} b*={g46['n_bstar_ok']}/"
+          f"{g46['n_bstar']} sp={g46['n_special_ok']}/{g46['n_special']}")
+
+    # T47 (010 §十一): n0/n1 split in eval_decide — kmd uses n1, kfa uses n0;
+    # on a stratified 2x120 set both equal 120.
+    print("\nT47 C3d n0/n1 split (010 §十一)")
+    H47 = np.concatenate([np.zeros(120, dtype=np.int8),
+                          np.ones(120, dtype=np.int8)])
+    L47 = mm46.sample_llr(H47, np.random.default_rng(7003))
+    s47 = c3a.eval_decide(pl46, 256.0, 0.8, 96, H47, L47,
+                          c21.myopic_decision, qu46, pw46)
+    ok47 = (s47["n0"] == 120 and s47["n1"] == 120
+            and s47["kfa"] <= s47["n0"] and s47["kmd"] <= s47["n1"])
+    check("T47 eval_decide n0/n1 split (kmd uses n1)", ok47,
+          f"n0={s47['n0']} n1={s47['n1']} kfa={s47['kfa']} kmd={s47['kmd']}")
+
+    # T48 (010 §五): StaticProg == 7 unique threshold policies (rho unused).
+    print("\nT48 StaticProg 7 unique policies (010 §五)")
+    fake48 = {(r, e): {"eb": 0.0}
+              for r in (128, 256, 512, 1024)
+              for e in (0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0)}
+    n_u, etas48, _nz = c3c.static_prog_unique_count(fake48)
+    ok48 = (n_u == 7 and list(etas48)
+            == [0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0])
+    check("T48 StaticProg unique-policy count == 7", ok48, f"{n_u}")
+
+    # T49 (010 §八): GPE-EA and Myopic-All share the same full action set —
+    # every executed action is (i,s) with s in levels, s > r_i, cost <= h.
+    print("\nT49 GPE-EA action-set compliance == Myopic-All (010 §八)")
+    memo49 = c3e.GPEMemo()
+    ok49 = True
+    n49 = 0
+    for e in range(30):
+        L_i = L46[e]
+        for H49 in (48, 96):
+            for fn, memo in ((lambda pl, x, om, h, r, e_, m=memo49:
+                              c3e.gpe_decision(pl, x, om, h, r, e_, m),
+                              memo49),
+                             (lambda pl, x, om, h, r, e_, m=None:
+                              c21.myopic_decision(pl, x, om, h, r, e_),
+                              None)):
+                x, h, om = 0, float(H49), 0.0
+                for _ in range(14):
+                    dec, _dd = fn(pl46, x, om, h, 256, 0.8)
+                    if dec[0] == "STOP":
+                        break
+                    i, _k, r2 = dec[1], dec[2], dec[3]
+                    zi = (x // pl46.powers[i]) % c21.BASE_B
+                    r_cur, _m = c21.z_decode_b(zi)
+                    cst = 16.0 + (r2 - r_cur)
+                    ok49 &= (r2 in g2.LEVELS and r2 > r_cur
+                             and cst <= h + 1e-9)
+                    n49 += 1
+                    m2 = int(qu46[i].cell_index(r2, float(L_i[i])))
+                    z2 = c21.z_code_b(r2, m2)
+                    om += pl46._llr_i[i][z2] - pl46._llr_i[i][zi]
+                    x += (z2 - zi) * pl46.powers[i]
+                    h -= cst
+                    if h < 1e-9:
+                        break
+    check("T49 GPE-EA/Myopic-All shared legal action space", ok49,
+          f"{n49} executed actions")
+
+    # T50 (010 §八 certificate): Q_cond <= q1 (min-with-continuation can only
+    # reduce) and pruned (all continuations dominated branchwise) implies
+    # Q_cond == q1 exactly.
+    print("\nT50 GPE conditional-refinement Q certificate (010 §八)")
+    memo50 = c3e.GPEMemo()
+    ok50 = True
+    n50 = n50_pr = 0
+    for (x, om) in st46:
+        zs = pl46.decode(int(x))
+        for i in range(4):
+            r, _m = c21.z_decode_b(zs[i])
+            if r >= 8:
+                continue
+            for s in g2.LEVELS:
+                if s <= r or s == 8:
+                    continue
+                c_s = 16.0 + (s - r)
+                conts = [t for t in g2.LEVELS
+                         if t > s and 16.0 + (t - s) <= 96.0 - c_s + 1e-9]
+                if not conts:
+                    continue
+                Qc, pruned = c3e._cond_refine_q(pl46, x, om, i, s, conts,
+                                                256.0, 0.8, memo50)
+                q1 = g2.q1_fast(pl46, x, om, i, s, 256.0, 0.8)
+                ok50 &= (Qc <= q1 + 1e-9)
+                n50 += 1
+                if pruned:
+                    n50_pr += 1
+                    ok50 &= abs(Qc - q1) < 1e-9
+    check("T50 Q_cond<=q1; pruned => exact equality", ok50,
+          f"{n50_pr}/{n50} pruned")
+
+    # T51 (010 §三): per-method convex hull unit logic — a method with no
+    # deterministic feasible point but a 2-point hull entering QoS is
+    # classified "registered-hull feasible"; an all-infeasible table is
+    # "registered-hull infeasible".
+    print("\nT51 per-method registered-hull unit (010 §三)")
+    def fake_tables(pts):
+        return {(1.0 + k * 0.01, 0.8 + 0.2 * k): {"kfa": kfa, "kmd": kmd,
+                                                   "n0": 600, "n1": 600,
+                                                   "eb": float(eb)}
+                for k, (kfa, kmd, eb) in enumerate(pts)}
+    tabA = fake_tables([(70, 60, 30.0), (30, 360, 26.0), (60, 260, 40.0)])
+    rA = c3c.per_method_policy_class(tabA)
+    ok51a = (rA["n_det"] == 0 and rA["n_enter"] >= 1
+             and rA["best_mix"] is not None
+             and "hull feasible" in rA["verdict"])
+    tabB = fake_tables([(200, 300, 30.0), (150, 260, 26.0), (250, 350, 40.0)])
+    rB = c3c.per_method_policy_class(tabB)
+    ok51b = (rB["n_det"] == 0 and rB["n_enter"] == 0
+             and "hull infeasible" in rB["verdict"])
+    check("T51 per-method hull enter / infeasible logic",
+          ok51a and ok51b,
+          f"A det={rA['n_det']} enter={rA['n_enter']} mix={rA['best_mix'] is not None} "
+          f"B det={rB['n_det']} enter={rB['n_enter']}")
+
+    # T52 (010 §十二 G0): audit accounting — regions sum == n_probe_feasible,
+    # n_pruned <= n_probe_feasible, rates in [0,1].
+    print("\nT52 C3e-G0 audit accounting")
+    aud52 = c3e.phase_activation_audit(pl46, qu46, pw46, H46, L46, 96)
+    regs52 = aud52["regions"]
+    ok52 = (regs52["A"] + regs52["B"] + regs52["C"]
+            == aud52["n_probe_feasible"]
+            and aud52["n_pruned"] <= aud52["n_probe_feasible"]
+            and 0.0 <= aud52["action_change_rate"] <= 1.0
+            and 0.0 <= aud52["P_continue"] <= 1.0)
+    check("T52 G0 audit accounting invariants", ok52,
+          f"regions={regs52['A']}/{regs52['B']}/{regs52['C']} "
+          f"probe={aud52['n_probe_feasible']} pruned={aud52['n_pruned']} "
+          f"act-change={aud52['action_change_rate']:.3f}")
 
     print(f"\n=== {len(PASS)} passed, {len(FAIL)} failed ({time.time()-t0:.0f}s) ===")
     for name, d in FAIL:

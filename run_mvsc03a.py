@@ -217,13 +217,29 @@ def eval_decide(pl, rho, eta, H, H_all, L_all, decide, quants8, powers8):
     i0 = H_all == 0
     i1 = H_all == 1
     n0 = int(np.count_nonzero(i0))
+    n1 = int(np.count_nonzero(i1))
     kfa = int(np.sum(lam_m[i0] > eta))
     kmd = int(np.sum(lam_m[i1] <= eta))
+    # C3d (advice/010.md §十一)：n0/n1 分离保存，kmd 的分母明确为 n1
+    # （当前 sample_set 严格 balanced 所以数值不变；接口不再脆弱）。
     return {"b": b_m, "pay": pay_m, "nt": nt_m, "lam": lam_m,
             "eb": float(b_m.mean()),
             "eb0": float(b_m[i0].mean()), "eb1": float(b_m[i1].mean()),
             "entx": float(nt_m.mean()), "epl": float(pay_m.mean()),
-            "kfa": kfa, "kmd": kmd, "n0": n0, "viol": viol}
+            "kfa": kfa, "kmd": kmd, "n0": n0, "n1": n1, "viol": viol}
+
+
+def classify_qos2(kfa, n0, kmd, n1, alpha=ALPHA, beta=BETA):
+    """C3d：QoS 分类，P_FA 用 n0、P_MD 用 n1（010 §十一 的 n0/n1 分离）。
+    统计口径与 classify_qos 完全一致（Wilson U95 上端 / L95 下端），仅分母
+    分别为各自的假设样本数（stratified 下 n0==n1，数值不变）。"""
+    ufa, lfa = wilson_upper(kfa, n0), wilson_lower(kfa, n0)
+    umd, lmd = wilson_upper(kmd, n1), wilson_lower(kmd, n1)
+    if ufa <= alpha and umd <= beta:
+        return "FEASIBLE"
+    if lfa > alpha or lmd > beta:
+        return "INFEASIBLE"
+    return "UNCERTAIN"
 
 
 def calibrate_decide(pl, H, H_cal, L_cal, quants8, powers8, rho_grid,

@@ -39,6 +39,8 @@ reduction of the second stage covers the extra payload of the full packet.
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from opmvs.fusion import log_sigmoid, log_one_minus_sigmoid
@@ -230,3 +232,140 @@ def verify_identity(sup, b_values):
     for b in b_values:
         max_dev = max(max_dev, abs(g_from_support(sup, b) - g_alt(sup, b)))
     return max_dev, sup["tower_dev"]
+
+
+# ===========================================================================
+# C3e-G1: Generalized Phase-Envelope (advice/010.md §七/§八)
+# ---------------------------------------------------------------------------
+# Arbitrary r < s < t, link-affine cost  c_i(r -> q) = b0 + kappa*(q - r):
+#
+#   Q_prog^{s,t} = c_i(r,s) + E[ min{ R(X_s), c_i(s,t) + E[R(X_t)|X_s] } ]
+#   Q_dir^t      = c_i(r,t) + E[ R(X_t) ]
+#   D_{i,s,t}    = R(X_s) - E[ R(X_t) | X_s ]
+#   Y_{i,s,t}    = D_{i,s,t} - kappa*(t - s)
+#
+#   Q_prog^{s,t} - Q_dir^t  =  E[ min{ Y_{i,s,t}, b0 } ]        (010 §七)
+# in the two-step budget-feasible region (c1 + c2 <= h, c1 = b0+kappa(s-r),
+# c2 = b0+kappa(t-s)).  The 013 identity is the special case
+# (s, t) = (r_next, r_max) with (b0, kappa) = (b_h, 1).
+#
+# R here is the (rho, eta)-dual terminal risk R_{rho,eta}(x) used by the
+# G2/C3 controllers (r_dual semantics), NOT the planner's built-in r_stop —
+# the C3e-G1 numerical gates and the C3e-G2 GPE-EA planner both live in the
+# G2 protocol so the envelope must match the controller's risk.
+# ===========================================================================
+
+
+def _r_dual(om, rho, eta):
+    """R_{rho,eta}(om) = rho * min{ p, e^eta (1-p) }, p = sigmoid(om),
+    log-domain stable (016 §10 semantics, same as g2.r_rho)."""
+    if om > 30.0:
+        return rho * math.exp(-eta) * math.exp(-om)     # p->1; e^eta(1-p)
+    if om < -30.0:
+        return rho * math.exp(om)                        # p->0; rho*p
+    p = 1.0 / (1.0 + math.exp(-om))
+    return rho * min(p, math.exp(eta) * (1.0 - p))
+
+
+def general_phase_support(pl, x, om, i, s, t, rho, eta,
+                          b0=None, kappa=1.0):
+    """Exact Y_{i,s,t} support for the arbitrary r<s<t envelope at full
+    state x (other UAVs' cells stay fixed) with link costs
+    c_i(r->q) = b0 + kappa*(q - r).
+
+    Uses the (rho, eta)-dual R (matching the G2 controller).  Returns None
+    when UAV i is at a level >= s, or when either the r->s or s->t
+    transition template is missing (s or t not in the ladder).
+
+    Returns:
+      branches : [(w1, x1, om1, R1, E_R, D, Y)]
+                 w1 = Pr(r->s branch), R1 = R(X_s),
+                 E_R = E[ R(X_t) | X_s ],  D = R1 - E_R,
+                 Y    = D - kappa*(t-s)
+      c1, c2, c_dir, kappa, b0
+      E_dir : E[R(X_t)] via direct r->t (tower target)
+      E_R_sum : sum_k w1_k E_R_k  (tower sum; |dev| = tower check)
+      Q_prog : c1 + E[ min{ R1, c2 + E_R } ]   (region-C form, both steps)
+      Q_dir  : c_dir + E_dir
+      g      : E[ min{ Y, b0 } ]  (envelope value, 010 §七 RHS)
+      g_alt  : Q_prog - Q_dir     (LHS; |g - g_alt| = identity dev)
+    """
+    b0 = float(pl.b_h) if b0 is None else float(b0)
+    kappa = float(kappa)
+    zs = pl.decode(int(x))
+    zi = zs[i]
+    r, _m = z_decode_b(zi)
+    if r >= s or not (s < t):
+        return None
+    tpl_i = pl._tpl[i][zi]
+    dir_tpl = next((a for a in tpl_i if a[0] == t), None)
+    prog_tpl = next((a for a in tpl_i if a[0] == s), None)
+    if dir_tpl is None or prog_tpl is None:
+        return None
+    c1 = b0 + kappa * (s - r)
+    c2 = b0 + kappa * (t - s)
+    c_dir = b0 + kappa * (t - r)
+    pw = pl.powers[i]
+    llr_i = pl._llr_i[i]
+    lp = -math.log1p(math.exp(-om))
+    lq = -math.log1p(math.exp(om))
+    # direct r -> t
+    E_dir = 0.0
+    for (m2, lp0c, lp1c) in dir_tpl[3]:
+        w = _weight(lp, lq, lp1c, lp0c)
+        z2 = z_code_b(t, m2)
+        om2 = om + llr_i[z2] - llr_i[zi]
+        E_dir += w * _r_dual(om2, rho, eta)
+    # progressive r -> s, then min{ R(X_s), c2 + E[R(X_t)|X_s] }
+    branches = []
+    for (m1, lp0c1, lp1c1) in prog_tpl[3]:
+        w1 = _weight(lp, lq, lp1c1, lp0c1)
+        z1 = z_code_b(s, m1)
+        om1 = om + llr_i[z1] - llr_i[zi]
+        R1 = _r_dual(om1, rho, eta)
+        E_R = 0.0
+        ref = next((a for a in pl._tpl[i][z1] if a[0] == t), None)
+        if ref is not None:
+            lp1 = -math.log1p(math.exp(-om1))
+            lq1 = -math.log1p(math.exp(om1))
+            for (m2, lp0c2, lp1c2) in ref[3]:
+                w2 = _weight(lp1, lq1, lp1c2, lp0c2)
+                z2 = z_code_b(t, m2)
+                om2 = om1 + llr_i[z2] - llr_i[z1]
+                E_R += w2 * _r_dual(om2, rho, eta)
+        D = R1 - E_R
+        Y = D - kappa * (t - s)
+        branches.append((w1, x + (z1 - zi) * pw, om1, R1, E_R, D, Y))
+    wsum = sum(br[0] for br in branches)
+    E_R_sum = sum(br[0] * br[4] for br in branches) / wsum if wsum > 0 else 0.0
+    Q_prog = c1 + sum(br[0] * min(br[3], c2 + br[4])
+                      for br in branches) / wsum if wsum > 0 else None
+    Q_dir = c_dir + E_dir if dir_tpl[3] else None
+    # NOTE: branches are 7-tuples (w, x, om, R1, E_R, D, Y) — the envelope
+    # g = E[min{Y,b0}] must use Y = br[6], NOT D = br[5] (the 013 6-tuple
+    # has Y at index 5; the generalized tuple added om at index 2).
+    g = sum(br[0] * min(br[6], b0) for br in branches) / wsum if wsum > 0 else 0.0
+    return {"r": r, "s": s, "t": t, "b0": b0, "kappa": kappa,
+            "c1": c1, "c2": c2, "c_dir": c_dir,
+            "branches": branches, "wsum": wsum,
+            "E_dir": E_dir, "E_R_sum": E_R_sum,
+            "tower_dev": abs(E_R_sum - E_dir),
+            "Q_prog": Q_prog, "Q_dir": Q_dir,
+            "g": g, "g_alt": (Q_prog - Q_dir) if (Q_prog is not None
+                                                  and Q_dir is not None) else None}
+
+
+def bstar_general(sup):
+    """Exact generalized b*(x; s,t) = inf{ b >= 0 : g_s,t(b) >= 0 } with
+    g_s,t(b) = E[min{ Y_{i,s,t}, b }] — the setup cost at which the
+    progressive r->s->t path switches to being dominated by direct r->t.
+    Reuses the exact discrete-support closed form (013 §5)."""
+    if sup is None:
+        return None
+    w = [br[0] for br in sup["branches"]]
+    y = [br[6] for br in sup["branches"]]   # Y (generalized 7-tuple), not D
+    d = bstar_from_dist(w, y)
+    d["b0"] = sup["b0"]
+    d["kappa"] = sup["kappa"]
+    d["r"], d["s"], d["t"] = sup["r"], sup["s"], sup["t"]
+    return d
