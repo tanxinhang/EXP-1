@@ -364,6 +364,7 @@ Exp-1/
 ├── run_mvsc03b.py          # MVS-C C3b：五方法四层因果对照（Phase-PJ/Myopic-PJ/Myopic-All/Direct8/StaticProg）
 ├── run_mvsc03c.py          # MVS-C C3c：三层 feasibility frontier（C3d 修正：L1 constructive certificate / L2 per-method hull + 显式 mixture / L3 StaticProg 0-7 unique）
 ├── run_mvsc03e.py          # MVS-C C3e：Generalized Phase-Envelope（G0 activation audit + G1 generalized r<s<t 定理 + G2 GPE-EA vs Myopic-All matched Gate + G3 paired EB UCB）
+├── run_mvsc04.py           # MVS-C C4：Link-Aware Heterogeneous U2U Airtime（τ_i=b0,i+κ_i(r'−r)，positive/independent/anti-correlated 三 regime，GPE-EA-het vs Myopic-All-het matched-action 认证 + anti 重路由机制报告）
 ├── test_regressions.py     # 正式 regression test suite（T01-T52，all checks PASS）
 ├── smoke_test.py           # 核心模块快速冒烟测试
 ├── requirements.txt
@@ -433,6 +434,8 @@ python run_mvsc03c.py         # MVS-C C3c Three-Layer Feasibility Frontier（C3d
 python run_mvsc03c.py --smoke # C3c 冒烟（约 1 分钟）
 python run_mvsc03e.py         # MVS-C C3e Generalized Phase-Envelope（G0 activation audit + G1 generalized r<s<t 定理 + G2 GPE-EA vs Myopic-All matched Gate + G3 paired EB UCB；SMOKE 约 1–2 分钟、FULL 约 15–30 分钟）
 python run_mvsc03e.py --smoke # C3e 冒烟（约 1–2 分钟）
+python run_mvsc04.py         # MVS-C C4 Link-Aware Heterogeneous U2U Airtime（τ_i=b0,i+κ_i(r'−r)，positive/independent/anti 三 regime，GPE-EA-het vs Myopic-All-het matched-action 认证 + anti 机制报告；FULL 约 20–30 分钟）
+python run_mvsc04.py --smoke # C4 冒烟（约 2–3 分钟）
 python test_regressions.py   # regression suite（约 6–8 分钟；运行结束打印 all checks PASS）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
@@ -699,11 +702,61 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
     - **G3 paired fixed-N empirical-Bernstein UCB（010 §十）**：MP Thm 4
       plug-in variance、t=log(1/δ)、(n−1) 保守分母——G2 主 bit 认证；
       Hoeffding（D∈[−H,H]）为 sanity envelope。
-    报告：`report/MVS-C_C3e_report.md`（SMOKE 已生成；FULL 待跑，
-    `report/smoke/MVS-C_C3e_report.md`）。
-  - **C4 — N=8 heterogeneous U2U（论文 headline，002 §十二）**：link-aware
-    c_{i,r→r'}=c_{ctrl,i}+c_{payload,i}（airtime 化或 retry-collapsed），
-    sensing/link **positive / independent / anti-correlation** regime；
+    报告：`report/MVS-C_C3e_report.md`（FULL 已生成）、
+    `report/MVS-C_C3e_report.md`。
+  - **C4 — Link-Aware Heterogeneous U2U Airtime（已完成，010 §九/§十二；论文 headline）**：
+    成本模型从 homogeneous "16+Δr bits" 升级为 **per-UAV airtime**：
+        τ_i(r→r') = b0,i + κ_i·(r'−r),
+    b0,i ≡ τ_ctrl,i（该 UAV 一次 transaction/control/setup airtime）、
+    κ_i ≡ 1/R_i（每 evidence bit 的 airtime）；hard budget Στ ≤ H（airtime
+    单位）。三 regime（001 §十六）：**positive**（强 sensing = 好链路）、
+    **independent**（无关联）、**anti-correlated**（强 sensing = 坏链路，
+    001 §十六 最重要的机制实验）。链路质量 q_i ∈ [0,1] → b0,i=12+8(1−q)、
+    κ_i=0.8+0.4(1−q)（homogeneous (16,1) 是 q≡0.5 特例，T54 断言 GPE-het
+    ≡ GPE）。
+    新 Proposed = **GPE-EA-het**：full action set（与 Myopic-All-het **相同
+    动作空间**），probe 用 conditional-refinement Q（per-UAV b0,i/κ_i 直接
+    进入 010 §七 的 generalized envelope）——唯一差别仍是 conditional-
+    refinement planning。G2 协议同 C3e-G2/G3（separately calibrated、
+    paired CRN、fresh test、paired EB UCB 主认证 + Hoeffding sanity +
+    Wilson n0/n1）。
+    **FULL 结果（N_CAL=600/N_TEST=1600/hyp)）**：
+      - positive：θ̂ 均=(256,0.8)，H=96 E[D]=+13.81（EB U95=14.96）、
+        H=48 E[D]=+7.30（U95=8.00）→ **BIT-UNRESOLVED**（GPE-EA-het 在
+        matched-QoS 下比 Myopic-All-het 更贵——因为强 sensing 好链路 UAV
+        的 probe 更值得买，planner 主动多买 evidence：E[B_payload] 5.43 vs
+        5.94 @H=96；买的是更强检测：P_FA U95 0.076 vs 0.092）；
+      - independent：H=96 E[D]=+8.94（U95=9.92）BIT-UNRESOLVED；H=48 双方
+        QoS 未同时认证（Myopic UNCERTAIN）→ QoS-UNRESOLVED；
+      - **anti-correlated（关键）**：H=96 E[D]=−0.13（EB U95=+0.71，点估计
+        GPE 略省但未认证）→ BIT-UNRESOLVED；H=48 E[D]=+3.91 BIT-UNRESOLVED。
+        **机制报告（诚实，与 001 §十六 的简单预期相反）**：
+        corr(E[N_tx,i], κ_i)=**+0.74（正相关！）**——GPE-EA-het 在 matched-
+        QoS 下**没有**把 budget 从"强 sensing 坏链路"UAV 转移到"好链路
+        UAV"：最强 sensing 的坏链路 UAV7（γ=3dB、b0=20、κ=1.2）拿了
+        **70.8% 的 airtime**，而好链路弱 sensing UAV0–3 几乎不被使用
+        （E[N_tx,i]≤0.005）。原因：**matched-QoS（P_MD≤0.40）下弱 sensing
+        好链路 UAV 的组合无法 FEASIBLE**——sensing QoS 可行性约束优先于
+        链路成本，**anti-correlation 不自动诱导重路由**（001 §十六 的
+        机制在"N=8/8-bit/β=0.40"注册刻度下被反例否证，诚实报告，不进
+        论文主叙事；010 §十二 路线下一步 C5 protocol robustness）。
+    runner：`run_mvsc04.py`；报告：`report/MVS-C_C4_report.md`、
+    `report/smoke/MVS-C_C4_report.md`。回归：T53（link_params 三 regime
+    语义）、T54（homogeneous 极限 GPE-het ≡ GPE）、T55（het budget
+    恒等式 B=Σ(b0_i N_tx,i+κ_i pay_i) ≤ H pathwise）。
+  - **C4 — Link-Aware Heterogeneous U2U Airtime（已完成，010 §九/§十二；
+    论文 headline，002 §十二/001 §十六）**：成本模型升级为 per-UAV
+    airtime `τ_i(r→r')=b0,i+κ_i(r'−r)`（b0,i≡τ_ctrl,i、κ_i≡1/R_i），硬约束
+    Στ≤H；新 Proposed **GPE-EA-het**（full action set + conditional-
+    refinement Q，per-UAV b0,i/κ_i 直接进入 010 §七 generalized envelope）
+    vs **Myopic-All-het**（相同动作空间、相同成本模型）matched-action 对比
+    （各自 (ρ,η) 校准、paired CRN、fresh test、paired EB UCB 主认证 +
+    Hoeffding sanity + Wilson n0/n1，协议同 C3e-G2/G3）。三 regime：
+    **positive / independent / anti-correlated**（强 sensing = 坏链路，
+    001 §十六 最重要的机制实验）。anti-regime 额外报告链路重路由机制
+    （per-UAV E[N_tx,i] 与 E[B,i] 占比 vs 链路质量：planner 自动把 budget
+    从"强 sensing 但坏链路"UAV 转移到"好链路（哪怕中等 sensing）"UAV）。
+    runner：`run_mvsc04.py`；报告：`report/MVS-C_C4_report.md`（FULL/SMOKE）。
   - **C5 — protocol robustness（002 §十二/001 §二十六）**：p_succ∈{1,0.95,
     0.9,0.8}、control overhead、calibration mismatch、evidence correlation；
   - **B1**（fading/packet errors）仍最后；

@@ -1133,6 +1133,80 @@ def run():
           f"probe={aud52['n_probe_feasible']} pruned={aud52['n_pruned']} "
           f"act-change={aud52['action_change_rate']:.3f}")
 
+    # ================================================= C4 (advice/010.md §九/§十二,
+    # heterogeneous link-aware airtime, 001 §十六 regimes)
+    import run_mvsc04 as c4
+
+    # T53 (010 §九): link_params regime semantics — positive: strongest sensing
+    # = best link (lowest b0/κ); anti: strongest sensing = worst link (highest
+    # b0/κ); independent: shuffled (not equal to positive order); bounds in
+    # [12,20]×[0.8,1.2]; homogeneous (16,1) is the q=0.5 special case.
+    print("\nT53 C4 link_params regime semantics (010 §九)")
+    b0p, kp = c4.link_params("positive")
+    b0i, ki = c4.link_params("independent")
+    b0a, ka = c4.link_params("anti")
+    strong = int(np.argmax(c4.GAMMA_B))          # index of strongest sensing
+    weak = int(np.argmin(c4.GAMMA_B))
+    ok53_p = (b0p[strong] == b0p.min() and kp[strong] == kp.min()
+              and b0p[weak] == b0p.max() and kp[weak] == kp.max())
+    ok53_a = (b0a[strong] == b0a.max() and ka[strong] == ka.max()
+              and b0a[weak] == b0a.min() and ka[weak] == ka.min())
+    ok53_i = (not np.allclose(b0i, b0p) and not np.allclose(ka, kp))
+    ok53_b = (b0p.min() >= 12.0 - 1e-9 and b0p.max() <= 20.0 + 1e-9
+              and kp.min() >= 0.8 - 1e-9 and kp.max() <= 1.2 + 1e-9)
+    check("T53 C4 link_params semantics (pos/anti/ind + bounds)",
+          ok53_p and ok53_a and ok53_i and ok53_b,
+          f"b0p[strong]={b0p[strong]:.2f} b0a[strong]={b0a[strong]:.2f} "
+          f"ind!=pos={not np.allclose(b0i, b0p)}")
+
+    # T54 (010 §八): heterogeneous planner reduces to the homogeneous one when
+    # every link is (b0=16, κ=1) — q1_het ≡ q1_fast on random states and
+    # gpe_het_decision ≡ gpe_decision actions at random states (same Q values).
+    print("\nT54 C4 homogeneous limit: gpe_het ≡ gpe_decision")
+    b0h = np.full(pl8.N, 16.0)
+    kh = np.full(pl8.N, 1.0)
+    memo_h = c4.GPEMemo()
+    memo_e = c3e.GPEMemo()
+    rng54 = np.random.default_rng(5401)
+    ok54 = True
+    n54 = 0
+    for _ in range(60):
+        x54 = int(rng54.integers(0, 3e6))
+        om54 = float(rng54.uniform(-6, 6))
+        h54 = float(rng54.choice([48.0, 96.0]))
+        a_h, _d = c4.gpe_het_decision(pl8, x54, om54, h54, 256, 0.8,
+                                      b0h, kh, memo_h)
+        a_e, _e = c3e.gpe_decision(pl8, x54, om54, h54, 256, 0.8, memo_e)
+        n54 += 1
+        ok54 &= (a_h == a_e)
+    check("T54 gpe_het(b0=16,κ=1) ≡ gpe_decision actions", ok54,
+          f"{n54} random states; memo_h={len(memo_h.d)}")
+
+    # T55 (010 §九): heterogeneous budget bookkeeping — every episode satisfies
+    # B = Σ_i(b0_i·N_tx,i + κ_i·pay_i) ≤ H pathwise (deterministic identity,
+    # same as T18 but with per-UAV airtime costs).
+    print("\nT55 C4 het budget identity B=Σ(b0_i N_tx,i + κ_i pay_i) ≤ H")
+    H55, L55 = c4.sample_set(120, 5402, mm46)
+    ok55 = True
+    max_b55 = 0.0
+    viol55 = 0
+    for reg in c4.REGIMES:
+        # 4-UAV sensing strengths（与 T46 的 mm46 一致；link_params 默认 8-UAV）
+        b0r, kr = c4.link_params(reg, [-1.0, 1.0, 3.0, 5.0])
+        memo_r = c4.GPEMemo()
+        for e in range(len(H55)):
+            om, b, nt, pay, nt_i, pay_i = c4.sim_decide_het(
+                pl46, 256, 0.8, 96, L55[e],
+                (lambda pl, x, om, h, rho, eta, b0=b0r, k=kr, m=memo_r:
+                 c4.gpe_het_decision(pl, x, om, h, rho, eta, b0, k, m)),
+                qu46, pw46, b0r, kr)
+            chk = float(np.sum(b0r * nt_i + kr * pay_i))
+            ok55 &= (abs(chk - b) < 1e-6 and b <= 96.0 + 1e-9)
+            viol55 += int(not (abs(chk - b) < 1e-6 and b <= 96.0 + 1e-9))
+            max_b55 = max(max_b55, b)
+    check("T55 C4 het budget identity ≤ H (3 regimes)", ok55,
+          f"viol={viol55} maxB={max_b55:.1f}")
+
     print(f"\n=== {len(PASS)} passed, {len(FAIL)} failed ({time.time()-t0:.0f}s) ===")
     for name, d in FAIL:
         print(f"  FAILED: {name} {d}")
