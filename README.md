@@ -357,6 +357,12 @@ Exp-1/
 ├── run_mvsb03.py           # B0.3 CR-RBL：认证 rollout 规划器（主交付）
 ├── run_mvsb03a.py          # B0.3a/B0.3c credibility + closure patch（paired CRN + STOP 证书 + 硬预算 + b⋆ 相变）
 ├── run_mvsb04.py           # B0.4 pairwise-difference EB-CS planner（主算法升级）
+├── run_mvsc01.py           # MVS-C C0+C1：semantic registration + link-aware phase theorem 验证
+├── run_mvsc02.py           # MVS-C C2：phase-guided policy + exact budgeted-CMDP oracle（Gate D）
+├── run_mvsc021.py          # MVS-C C2.1：budget-aware closure（matched ρ-homotopy + MITM + Gate D1/D2）
+├── run_mvsc03a.py          # MVS-C C3a：migration gate（复现 G2 anchor）+ contract hardening（Myopic-PJ/StaticProg/convex-hull/exhaustive 4-bit certificate）
+├── run_mvsc03b.py          # MVS-C C3b：五方法四层因果对照（Phase-PJ/Myopic-PJ/Myopic-All/Direct8/StaticProg）
+├── run_mvsc03c.py          # MVS-C C3c：三层 feasibility frontier（L1 Physical/L2 Policy-class/L3 Controller-search）
 ├── test_regressions.py     # 正式 regression test suite（all checks PASS）
 ├── smoke_test.py           # 核心模块快速冒烟测试
 ├── requirements.txt
@@ -417,6 +423,12 @@ python run_mvsc02.py         # MVS-C C2 phase-guided policy + exact budgeted-CMD
 python run_mvsc02.py --smoke # C2 冒烟（约 1.5 分钟）
 python run_mvsc021.py         # MVS-C C2.1 budget-aware closure（advice/002.md：matched ρ-homotopy + MITM + Gate D1/D2；FULL 约 16–30 分钟）
 python run_mvsc021.py --smoke # C2.1 冒烟（约 2 分钟）
+python run_mvsc03a.py         # MVS-C C3a Migration Gate + contract hardening（005.md：复现 G2 anchor + Myopic-PJ/StaticProg + exhaustive 4-bit certificate；FULL 约 8–10 分钟）
+python run_mvsc03a.py --smoke # C3a 冒烟（约 1 分钟）
+python run_mvsc03b.py         # MVS-C C3b Causal Four-Layer Comparison（005.md §十八：Phase-PJ/Myopic-PJ/Myopic-All/Direct8/StaticProg 四层对照；FULL 约 11 分钟）
+python run_mvsc03b.py --smoke # C3b 冒烟（约 1.5 分钟）
+python run_mvsc03c.py         # MVS-C C3c Three-Layer Feasibility Frontier（005.md §十九：L1 Physical/L2 Policy-class/L3 Controller-search；FULL 约 9 分钟）
+python run_mvsc03c.py --smoke # C3c 冒烟（约 1 分钟）
 python test_regressions.py   # regression suite（约 5–7 分钟；运行结束打印 all checks PASS）
 python run_mvsa.py --smoke   # 快速冒烟
 python run_mvsa_r1.py --smoke
@@ -599,21 +611,60 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
   **(2) dominance-safety（003 §5）**：真正证书 prune ⟹ Q_prog ≥ Q_dir − ε，reachable 263 检查 + A 区不剪断言，0 矛盾 PASS（取代旧的 g0↔prune 自洽自检）。
   **(3) matched §3.4 统计修正（003 §6）**：min U_MD 限定 U_FA≤α 子集 → U_FA≤α 边最优点 (ρ=8192,η=1.6) U_MD=0.2446、与 β8=0.1591 的**真实差距 0.0855**（不再写全网格 min 0.1638 的 0.0047 假象）。
   **(4) regression 落库（003 §8）**：**T33–T39 入 test_regressions.py**（MITM==brute、Region A/B/C law、dominance、stratified n0=n1、J≥V*），**53/53 PASS**；P2：65536 typo、P_FA≤α（det-thr）措辞、duplicate orderB 删除、Gate D1 Δ_J max 1.89%→1.88%（003 §9 预期下降兑现）；FULL runtime 757.6s→642.1s。报告：`report/MVS-C_C21_report.md`（FULL）、`report/smoke/MVS-C_C21_report.md`。
-  **[C2.1b（004 审计，独立路径对照修复）]**：区域恒等式门原为恒真式（C 区 gap 与 g_verdict 是同一变量、B 区代数恒等，永远不会失败）。修复：B 区 `phase_support_budget` 现在也计算 per-branch counterfactual E_R=E[R(X2)|X1]（仅作审计，不进入 Q_prog），g_verdict=Σw·(R1−E_R−d2) 独立于 gap 的边际 tower 路径；C 区 g_verdict=Q_prog−Q_dir 独立于 gap 的 support 形式——两侧来自不同代码路径，|gap−g_verdict|≤1e-9 可真实失败（sabotage 验证：Q_prog+5 / E_dir+5 / E_R 偏差均被捕获）。同时修复 main() 中 N=1 反例 g0_chk 的索引 bug（用 br[6]=Y=R1−d2，非 br[5]=D=R1）。T35/T36 同步为真实检查；T34 注释算术修正（c1+c2=36）。53/53 PASS；FULL/SMOKE 重跑数值与 C2.1a 逐项一致（墙钟 runtime 因机器而异：FULL 739.2s、SMOKE 88.4s），仅恒等式门描述更新。
-  **已完成（MVS-C C0→C2.1，见上各 bullet）**：C0 semantic closure（matched
-  QoS + link-aware cost + frame budget + canonical belief）、C1 link-aware
-  phase theorem 数值验证、C2 phase-guided policy + 4-bit exact-oracle Gate D
-  （已由 C2.1 修正为 D1/D2）、**C2.1 budget-aware closure（002.md）**。
-  **下一步（002 §十一，MVS-C 后续）＝ 修正路线**：
-  - **C3a — Migration Gate（N=8 homogeneous replay）**：用 **new budget-aware
-    Myopic-FG** 逐样本/统计复现 B0.7-G2 special-case 数值（002 §十一：**不要
-    求 Phase-FG 复现 G2**——migration 与 algorithm 两目标分离）；C2.1 已把
-    myopic/direct 基线标注为 C2 时代 one-step 参考，此处是正式预算版定义；
-  - **C3b — Algorithm**：Phase-FG vs Myopic-FG vs Direct8（matched/legacy 双边，
-    用 C2.1 的预算版 policy + MITM β 目标）；
-  - **C3c — Feasibility frontier**：matched QoS 可达性（ρ/η-homotopy +
-    KL/信息论必要界：D(P_1^T∥P_0^T) ≥ d(1−β∥α)、κ_max·H 上界 → 三分类
-    INFEASIBLE/UNRESOLVED/FEASIBLE，002 §十）；
+  **[C2.1b（004 审计，独立路径对照修复）]**：区域恒等式门原为恒真式（C 区 gap 与 g_verdict 是同一变量、B 区代数恒等，永远不会失败）。修复：B 区 `phase_support_budget` 现在也计算 per-branch counterfactual E_R=E[R(X2)|X1]（仅作审计，不进入 Q_prog），g_verdict=Σw·(R1−E_R−d2) 独立于 gap 的边际 tower 路径；C 区 g_verdict=Q_prog−Q_dir 独立于 gap 的 support 形式——两侧来自不同代码路径，|gap−g_verdict|≤1e-9 可真实失败（sabotage 验证：Q_prog+5 / E_dir+5 / E_R 偏差均被捕获）。同时修复 main() 中 N=1 反例 g0_chk 的索引 bug（用 br[6]=Y=R1−d2，非 br[5]=D=R1）。T35/T36 同步为真实检查；T34 注释算术修正（c1+c2=36）。53/53 PASS；FULL/SMOKE 重跑数值与 C2.1a 逐项一致（FULL runtime 为墙钟、因机器而异：提交版 642.1s，后续重跑 665.6s/739.2s 等——**以报告"总耗时"为准**），仅恒等式门描述更新。
+  **已完成（MVS-C C0→C2.1，见上各 bullet）**：C0 Specification/Semantic
+  Registration（005 §三 改名：文档/runner 关键字登记，非 implementation
+  closure）、C1 link-aware phase theorem 数值验证（**A/B/C 命名与
+  phase_boundary.py 统一，005 §四**）、C2 phase-guided policy + 4-bit
+  exact-oracle Gate D（已由 C2.1 修正为 D1/D2）、**C2.1 budget-aware
+  closure（002.md）**、**C2.1b identity-gate 独立路径对照（004.md）**。
+  **下一步（002 §十一 + 005 §十七，MVS-C 后续）＝ 修正路线**：
+  - **C3a — Migration Gate（已完成，005 §十七）**：新架构 budget-aware
+    Myopic-FG（Myopic-All，one-step QoS-dual，A={1,2,4,8}）在 N=8
+    homogeneous 下**逐项复现 B0.7-G2**（θ̂_FG=θ̂_D8=(256,0.8)、H=96
+    E[D]=−5.3250、U95=−1.1710、双方 FEASIBLE → **PASS**；H=48 E[D]=−5.0263、
+    U95=−2.9493 也复现）。controller 等价性审计：run_mvsc021 决策族 vs G2
+    q_min_fg/q_min_d8（开发期 300 episodes 审计 + T40 回归 40 episodes × 3
+    corners × H∈{48,96}，FULL seeds 复算 max|Δ(cost,N_tx,payload)|=0）。**Contract hardening 同步落地**：
+    (H1) **Myopic-PJ**（A={next,full}，one-step——与 Phase-PJ 同动作集，
+    消除旧 Phase-vs-Myopic 动作空间混杂，005 §七）；(H2) **StaticProg**
+    （固定 SNR ladder，Gate B 主基线回归，005 §八）；(H3) A/B/C 命名统一
+    phase_boundary 为准（005 §四）；(H4) **P_D,max^det-thr** 标注（005 §九：
+    离散 LLR 下确定性阈值 ≠ 严格 randomized-NP）；(H5) **policy-mixture/
+    convex-hull 诊断**（deterministic-grid vs policy-class feasibility
+    分离，005 §六）；(H6) **4-bit N=4 exhaustive budget-reachable
+    dominance-safety certificate**（BFS 607121 个 (x,h) 对、432644 支撑、
+    B/C 区 0 矛盾——**并暴露并修复 d2=0 退化 bug**：r_next==r_max 时
+    probe==direct，Q_prog 必须=Q_dir、gap=0，T42；A 区在 N=4/H=96 数学
+    上不可达，靠 N=1 反例 + “绝不剪”断言覆盖，005 §十）。报告：
+    `report/MVS-C_C3a_report.md`（FULL）、`report/smoke/MVS-C_C3a_report.md`。
+  - **C3b — Algorithm（已完成，005 §十八 四层因果对照）**：五方法 separately
+    calibrated（θ̂ 均=(256,0.8)）+ paired CRN + Hoeffding/Wilson，四层对照：
+    (1) **Phase-PJ ≡ Myopic-PJ**（同动作集 {next,full}，θ̂ 下 D=0.000，T43 锁定；
+        conditional-refinement planning value ≈ 0——但 (1024,2.0) 极端点有
+        4/40 差异且 Phase 更省，refinement 有 bite 只在 θ 边角）；
+    (2) **Phase-PJ vs Direct8**：E[B] 34.49 vs 37.52，D=−3.03（U95=1.12，
+        UNRESOLVED——方向对但 Hoeffding 界未认证）；
+    (3) **Phase-PJ vs StaticProg**：StaticProg 无 FEASIBLE θ̂（固定顺序简单
+        ladder 无法同时满足 α=0.12/β=0.40，本身即 adaptive 必要性证据）；
+    (4) **Phase-PJ vs Myopic-All**：34.49 vs 32.20，D=+2.30（Myopic-All 更省，
+        UNRESOLVED）。**结论**：Myopic-All（A={1,2,4,8} 全跳）< Phase-PJ <
+    Direct8（32.20 < 34.49 < 37.52）；StaticProg 语义修正为 |Ω|≥η 渐进
+    ladder（007 审计：消除 QoS-dual R≤min Q 的 root 全停退化，T44 锁定）。
+    报告：`report/MVS-C_C3b_report.md`（FULL）、
+    `report/smoke/MVS-C_C3b_report.md`。
+  - **C3c — Feasibility frontier（已完成，005 §十九 三层）**：**L1 Physical
+    PASS**（预算内最大 evidence：4 最强 SNR UAV 8-bit，cost 96=H，MITM 精确
+    ROC P_MD=0.1072≤0.40；4 弱 UAV 也达标 0.3633——物理层可行，T45 锁定）；
+    **L2 Policy-class PASS**（C3b 四方法 θ̂ 点 Wilson U95 均 FEASIBLE，
+    两两 randomized mixture 6/6 进入 QoS 象限——deterministic
+    policy-class feasible，升级 C3a 点估计为 U95 口径）；**L3
+    Controller-search 4/5**（Phase-PJ/Myopic-PJ/Myopic-All/Direct8
+    registered-grid feasible；StaticProg 0/28 registered-grid infeasible——
+    但 L1/L2 已证整体可行，StaticProg 的 NO 是网格/控制器层，**非物理
+    层**）。三层归因闭环：以后 INFEASIBLE 可明确区分 physical /
+    policy-family / registered-grid。报告：`report/MVS-C_C3c_report.md`
+    （FULL）、`report/smoke/MVS-C_C3c_report.md`。
   - **C4 — N=8 heterogeneous U2U（论文 headline，002 §十二）**：link-aware
     c_{i,r→r'}=c_{ctrl,i}+c_{payload,i}（airtime 化或 retry-collapsed），
     sensing/link **positive / independent / anti-correlation** regime；

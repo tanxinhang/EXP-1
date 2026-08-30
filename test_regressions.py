@@ -32,6 +32,14 @@ not a tuning issue.  The suite covers:
   T31 exact-support b*(x) = strategy switch point of Q_prog vs Q_dir (B0.4b)
   T32 CPI budget-aware anchor clamp: nominal base action unaffordable at
       (x, h) => anchor = STOP, no crash, a_exec feasible (B0.6-pre-r, 014 §1)
+  T40 C3a migration controller equivalence: budget-aware Myopic-All / Direct8
+      == G2 q_min_fg/q_min_d8 on N=8 homogeneous at frozen corners
+      (005 §十七, deterministic part of the migration anchor)
+  T41 Myopic-PJ action set == {next, full} (contract hardening H1, 005 §七)
+  T43 C3b causal contrast: Phase-PJ == Myopic-PJ decisions in N=8
+      homogeneous regime (conditional-refinement value ~0, 005 §18)
+  T44 StaticProg |Omega|>=eta stop (007 fix: no all-stop degeneration)
+  T45 C3c L1 physical feasibility: in-budget 4x8-bit MITM P_MD <= beta
 
 Deterministic invariants (T01-T15, T17a, T18, T20 identity part): a failure is a bug.
 Statistical audits (T16, T17b, T19, T20 variance part): assertions carry explicit
@@ -819,6 +827,133 @@ def run():
                                               rho, eta, 0, H)
         ok39 &= j_phase >= v_star - 1e-6
     check("T39 J_Phase >= V* (D1 Lagrangian lower bound)", ok39)
+
+    # ------------------------------------------- C3a invariants (advice/005.md)
+    # T40: C3a migration controller equivalence — run_mvsc021 budget-aware
+    # Myopic-All / Direct8 == G2 q_min_fg/q_min_d8 on N=8 homogeneous at the
+    # frozen corners (005 §十七: migration anchor; controller equivalence is
+    # the deterministic part that makes the FULL migration reproducible).
+    # T41: Myopic-PJ action set == {next, full} (hardening H1, 005 §七).
+    import run_mvsb07g2 as g2
+    import run_mvsc03a as c3a
+    mm8 = c21.GaussianDetectorModel(g2.GAMMA_B, (0.5, 0.5))
+    qu8 = [c21.NestedQuantizer(i, mm8, r_max=8, levels=g2.LEVELS)
+           for i in range(8)]
+    pw8 = [c21.BASE_B ** i for i in range(8)]
+    pl8 = c21.SparsePlanner(qu8, 1.0, 1.0, b_h=16.0, cross_level=True,
+                            levels=g2.LEVELS, delta_c=1.0)
+    rng8 = np.random.default_rng(11)
+    H8 = rng8.integers(0, 2, 40)
+    L8 = mm8.sample_llr(H8, np.random.default_rng(12))
+    ok40 = True
+    for (rho, eta) in g2.CORNER_THETAS:
+        for H in (48, 96):
+            for e in range(40):
+                L_i = L8[e]
+                for mode, decfn in (("FG", c21.myopic_decision),
+                                    ("D8", c21.direct_decision)):
+                    lam, cost, nt, pay = g2.sim_method(
+                        pl8, rho, eta, H, L_i, mode, qu8, pw8)
+                    cost21, bp21, nt21, _dec = c21.run_episode(
+                        mm8, qu8, pl8, int(H8[e]), L_i, H, decfn, rho, eta)
+                    ok40 &= (abs(cost - cost21) < 1e-9
+                             and abs(nt - nt21) < 1e-9
+                             and abs(pay - bp21) < 1e-9)
+    check("T40 C3a migration: Myopic-All/D8 == G2 sim (N=8, corners)", ok40)
+
+    ok41 = True
+    for e in range(40):
+        L_i = L8[e]
+        x, om, h = 0, 0.0, 96.0
+        for _ in range(10):
+            dec, _d = c3a.myopic_pj_decision(pl8, x, om, h, 256, 0.8)
+            if dec[0] == "STOP":
+                break
+            i, _k, r2 = dec[1], dec[2], dec[3]
+            zi = (x // pl8.powers[i]) % c21.BASE_B
+            r_cur, _m = c21.z_decode_b(zi)
+            r_next = next((rr for rr in pl8.levels if rr > r_cur), None)
+            # PJ action set: only {next, full}
+            ok41 &= (r2 == r_next or r2 == pl8.r_max)
+            m2 = int(qu8[i].cell_index(r2, float(L_i[i])))
+            z2 = c21.z_code_b(r2, m2)
+            x += (z2 - zi) * pl8.powers[i]
+            om += pl8._llr_i[i][z2] - pl8._llr_i[i][zi]
+            h -= 16.0 + (r2 - r_cur)
+            if h < 1e-9:
+                break
+    check("T41 Myopic-PJ action set == {next, full} (H1)", ok41)
+
+    # T42 degenerate r_next == r_max (d2 == 0): probe == direct, so
+    # Q_prog == Q_dir and gap == 0 (found by the 4-bit exhaustive
+    # certificate, 005 §10; run_mvsc021.py now handles it like
+    # phase_boundary.py: E_R = R1, D = 0, Y = 0).
+    ok42 = True
+    for (x0, i0) in [(0, 0), (0, 1), (0, 2), (0, 3)]:
+        # put UAV i0 at the second-highest level so r_next == r_max
+        # (4-bit: r=2 -> r_next=4 == r_max; 8-bit: r=4 -> r_next=8)
+        zs = [0, 0, 0, 0]
+        q4x = [c21.NestedQuantizer(i, mm4, 4, c21.LEVELS4) for i in range(4)]
+        pl4x = c21.SparsePlanner(q4x, 1.0, 1.0, b_h=16.0, cross_level=True,
+                                 levels=c21.LEVELS4, direct_only=False,
+                                 delta_c=1.0)
+        r_mid = 2
+        zs[i0] = c21.z_code_b(r_mid, 0)
+        x = sum(int(z) * (c21.BASE_B ** i) for i, z in enumerate(zs))
+        sup = c21.phase_support_budget(pl4x, x, pl4x.omega(x), i0, 60,
+                                       512.0, 1.2)
+        if sup is None:
+            ok42 = False
+            continue
+        # d2 == 0 => probe == direct: Q_prog should equal Q_dir, gap ~ 0
+        ok42 &= abs(sup["Q_prog"] - sup["Q_dir"]) < 1e-6
+        ok42 &= abs(sup["gap"]) < 1e-6
+    check("T42 degenerate d2=0: Q_prog==Q_dir, gap==0 (exhaustive cert)", ok42)
+
+    # T43: C3b causal-layer contrast — at the calibrated theta_hat=(256,0.8),
+    # Phase-PJ (conditional refinement) == Myopic-PJ (one-step) decisions in
+    # the N=8 homogeneous regime (005 §18 contrast; verified 0/40 cost diff
+    # at theta_hat). NOTE: at extreme corners like (1024,2.0) they DO differ
+    # (4/40 eps, Phase-PJ cheaper) — refinement has bite there; T43 pins the
+    # theta_hat point only.
+    # T44: StaticProg |Omega|>=eta stop (007 fix) — no more all-stop
+    # degeneration at low eta: it must send >=1 message (E[B]>=17) at
+    # eta=0.8 and stop via threshold not QoS-dual R<=min Q.
+    import run_mvsc03a as c3a
+    ok43 = True
+    for (rho, eta) in [(256, 0.8)]:
+        for H in (48, 96):
+            for e in range(20):
+                L_i = L8[e]
+                c_p = c3a.sim_decide(pl8, rho, eta, H, L_i,
+                                     c21.phase_decision_budget, qu8, pw8)[1]
+                c_m = c3a.sim_decide(pl8, rho, eta, H, L_i,
+                                     c3a.myopic_pj_decision, qu8, pw8)[1]
+                ok43 &= abs(c_p - c_m) < 1e-9
+    check("T43 C3b: Phase-PJ == Myopic-PJ @ theta_hat (refinement no value "
+          "at calibrated pt)", ok43)
+
+    ok44 = True
+    # StaticProg at (128, 0.8): must send at least one 1-bit (E[B]>=17)
+    # and stop by |Omega|>=eta (not all-stop E[B]=0)
+    for e in range(20):
+        L_i = L8[e]
+        _lam, cost, nt, _pay = c3a.sim_decide(pl8, 128, 0.8, 96, L_i,
+                                              c3a.static_prog_decision,
+                                              qu8, pw8)
+        ok44 &= cost >= 17.0 - 1e-9 and nt >= 1
+    check("T44 StaticProg |Omega|>=eta stop (no all-stop degeneration)", ok44)
+
+    # T45: C3c L1 physical feasibility — 4 strongest-SNR UAVs 8-bit
+    # (cost 4x24=96=H) achieves P_MD <= beta at alpha=0.12 via exact MITM
+    # ROC (005 §19: physical layer feasible; deterministic, no seeds).
+    import run_mvsc03c as c3c
+    mmc = c21.GaussianDetectorModel(g2.GAMMA_B, (0.5, 0.5))
+    quc = [c21.NestedQuantizer(i, mmc, r_max=8, levels=g2.LEVELS)
+           for i in range(8)]
+    ok45, rows45 = c3c.physical_feasibility(mmc, quc)
+    ok45 &= rows45[0]["ok"] and rows45[0]["cost"] <= 96.0 + 1e-9
+    check("T45 C3c L1 physical feasibility (MITM, in-budget 4x8-bit)", ok45)
 
     print(f"\n=== {len(PASS)} passed, {len(FAIL)} failed ({time.time()-t0:.0f}s) ===")
     for name, d in FAIL:

@@ -4,8 +4,10 @@
 
 ## 0. MITM 精确 8-bit 全融合参考（002 §七，替代 continuous 近似）
 
-- 8-bit（MITM，65536+65536 support）：P_D,max^8b(0.05) = 0.8509（η*=0.8117）→ matched 目标 P_MD ≤ 0.1591
-- 4-bit（MITM）：P_D,max^4b(0.05) = 0.8482（η*=0.8244）→ matched 目标 P_MD ≤ 0.1618
+> **P_D,max 口径（005 §九）**：LLR 全融合统计 Ω 在量化消息下是**离散**的，严格 Neyman–Pearson optimum 允许在 threshold atom 上随机化（δ(Ω=η)=1 w.p. γ）以用满剩余 false-alarm budget；本 runner 的 `pd_max_at_alpha` 用确定性阈值 bisection（Ω>η、P_FA≤α）——因此这里报告的是 **P_D,max^det-thr**（deterministic-threshold achievable reference），不是严格 randomized-NP P_D,max。对 8-bit（65536 support 密集）二者数值差极小；论文措辞按 005 §九：不写裸 “maximum achievable” 而不说明 det-thr。
+
+- 8-bit（MITM，65536+65536 support）：P_D,max^det-thr,8b(0.05) = 0.8509（η*=0.8117）→ matched 目标 P_MD ≤ 0.1591
+- 4-bit（MITM）：P_D,max^det-thr,4b(0.05) = 0.8482（η*=0.8244）→ matched 目标 P_MD ≤ 0.1618
 
 ## 0.1 π_full 显式可行构造（002 §二：matched 的 primal feasibility 证明）
 
@@ -84,15 +86,15 @@
 ## 4. Gate D1（solver-quality，Lagrangian）与 D2（primal E[C]）（002 §三，取代 C2 的 E[B]-only Gate D）
 
 - θ=(256, 1.2) H=48：V*=85.036（0.0s）；J(Phase)=85.233（Δ_J=0.23%）、J(Myo)=85.036（-0.00%）、J(Direct4)=85.496（0.54%）；[D2 参考] E[B]: Phase=27.125 vs CMDP* E[B]=26.875（裸 E[B] 差 +0.250 —— 只作 primal 参考，不作 solver 证书）
-- θ=(256, 1.2) H=96：V*=80.348（15.8s）；J(Phase)=81.862（Δ_J=1.88%）、J(Myo)=81.920（1.96%）、J(Direct4)=80.703（0.44%）；[D2 参考] E[B]: Phase=29.896 vs CMDP* E[B]=34.569（裸 E[B] 差 -4.673 —— 只作 primal 参考，不作 solver 证书）
+- θ=(256, 1.2) H=96：V*=80.348（14.5s）；J(Phase)=81.862（Δ_J=1.88%）、J(Myo)=81.920（1.96%）、J(Direct4)=80.703（0.44%）；[D2 参考] E[B]: Phase=29.896 vs CMDP* E[B]=34.569（裸 E[B] 差 -4.673 —— 只作 primal 参考，不作 solver 证书）
 - θ=(512, 1.2) H=48：V*=142.253（0.0s）；J(Phase)=142.524（Δ_J=0.19%）、J(Myo)=142.253（0.00%）、J(Direct4)=142.691（0.31%）；[D2 参考] E[B]: Phase=29.812 vs CMDP* E[B]=29.438（裸 E[B] 差 +0.375 —— 只作 primal 参考，不作 solver 证书）
-- θ=(512, 1.2) H=96：V*=124.641（16.2s）；J(Phase)=126.512（Δ_J=1.50%）、J(Myo)=126.892（1.81%）、J(Direct4)=125.559（0.74%）；[D2 参考] E[B]: Phase=36.877 vs CMDP* E[B]=38.712（裸 E[B] 差 -1.836 —— 只作 primal 参考，不作 solver 证书）
+- θ=(512, 1.2) H=96：V*=124.641（14.6s）；J(Phase)=126.512（Δ_J=1.50%）、J(Myo)=126.892（1.81%）、J(Direct4)=125.559（0.74%）；[D2 参考] E[B]: Phase=36.877 vs CMDP* E[B]=38.712（裸 E[B] 差 -1.836 —— 只作 primal 参考，不作 solver 证书）
 - θ=(1024, 1.6) H=48：V*=287.891（0.0s）；J(Phase)=287.984（Δ_J=0.03%）、J(Myo)=300.504（4.38%）、J(Direct4)=288.171（0.10%）；[D2 参考] E[B]: Phase=31.062 vs CMDP* E[B]=30.938（裸 E[B] 差 +0.125 —— 只作 primal 参考，不作 solver 证书）
-- θ=(1024, 1.6) H=96：V*=234.269（15.4s）；J(Phase)=237.908（Δ_J=1.55%）、J(Myo)=241.394（3.04%）、J(Direct4)=236.987（1.16%）；[D2 参考] E[B]: Phase=40.974 vs CMDP* E[B]=44.483（裸 E[B] 差 -3.509 —— 只作 primal 参考，不作 solver 证书）
+- θ=(1024, 1.6) H=96：V*=234.269（14.6s）；J(Phase)=237.908（Δ_J=1.55%）、J(Myo)=241.394（3.04%）、J(Direct4)=236.987（1.16%）；[D2 参考] E[B]: Phase=40.974 vs CMDP* E[B]=44.483（裸 E[B] 差 -3.509 —— 只作 primal 参考，不作 solver 证书）
 - θ=(8192, 1.2) H=48：V*=1813.290（0.0s）；J(Phase)=1813.415（Δ_J=0.01%）、J(Myo)=1813.290（0.00%）、J(Direct4)=1813.415（0.01%）；[D2 参考] E[B]: Phase=33.750 vs CMDP* E[B]=33.625（裸 E[B] 差 +0.125 —— 只作 primal 参考，不作 solver 证书）
-- θ=(8192, 1.2) H=96：V*=1327.791（15.3s）；J(Phase)=1345.102（Δ_J=1.30%）、J(Myo)=1345.562（1.34%）、J(Direct4)=1344.983（1.29%）；[D2 参考] E[B]: Phase=46.683 vs CMDP* E[B]=53.463（裸 E[B] 差 -6.781 —— 只作 primal 参考，不作 solver 证书）
+- θ=(8192, 1.2) H=96：V*=1327.791（14.9s）；J(Phase)=1345.102（Δ_J=1.30%）、J(Myo)=1345.562（1.34%）、J(Direct4)=1344.983（1.29%）；[D2 参考] E[B]: Phase=46.683 vs CMDP* E[B]=53.463（裸 E[B] 差 -6.781 —— 只作 primal 参考，不作 solver 证书）
 - **Gate D1 判决**：max Δ_J = 1.88% ≤ 预注册 10% → PASS（002 §三：Δ_J≥0 恒成立时 D1 才可能是质量证书；C2 的 E[B]-only Gate D 正式降级为 PROVISIONAL，由 D1 替代）
 - **Gate D2（primal E[C]）**：matched 口径下双方 FEASIBLE 才比较 —— 见 §3.1 matched 表与 §3.4 定性（当前 matched 网格若仍无可行点：D2 UNRESOLVED，按 002 §二 不当作机制否定）。
 
-总耗时: 88.4s
+总耗时: 81.8s
 

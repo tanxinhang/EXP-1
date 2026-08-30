@@ -267,23 +267,37 @@ def phase_support_budget(pl, x, om, i, h, rho, eta):
         x1 = x + (z1 - zi) * pl.powers[i]
         om1 = om + pl._llr_i[i][z1] - pl._llr_i[i][zi]
         R1 = r_dual(om1, rho, eta)
-        E_R = 0.0
-        ref = next((a for a in pl._tpl[i][z1] if a[0] == r_max), None)
-        # B/C 区都计算 per-branch counterfactual E[R(X2)|X1]：C 区用于 Q_prog
-        # 的 conditional refinement；B 区第二包虽不可行，但 counterfactual 是
-        # tower 恒等式 E[E[R(X2)|X1]] = E[R(X2)] 的审计对象（003 §五：B 区
-        # gap=E[Y] 需要 per-branch 独立验证，不能只做边际代数自洽）。A 区
-        # 保持 E_R=0（probe 唯一可行，无对照物；g0_chk 语义依赖它）。
-        if ref is not None and region in ("B", "C"):
-            lp1 = _logp(om1)
-            lq1 = _logq(om1)
-            for (m2, lp0c, lp1c) in ref[3]:
-                w2 = _w(lp1, lq1, lp1c, lp0c)
-                z2 = z_code_b(r_max, m2)
-                om2 = om1 + pl._llr_i[i][z2] - pl._llr_i[i][z1]
-                E_R += w2 * r_dual(om2, rho, eta)
-        D = R1 - E_R
-        Y = D - d2
+        if d2 == 0.0:
+            # 退化情形（013/phase_boundary.py 同语义）：r_next == r_max ⇒
+            # probe 与 direct 是**同一动作**（r→r_max 只发一个包），第二包
+            # 是 no-op ⇒ 续程 = 立即 STOP（R(X1)），E_R = R1 ⇒ D = 0、Y = 0，
+            # g_x(b)=E[min(0,b)]=0、Q_prog=Q_dir（prog_tpl==dir_tpl，
+            # ER1==E_dir 精确成立）。此前 E_R 保持 0 会让 C 区 gap 假性
+            # E[min(R1,16)] 而 Q_prog−Q_dir 为负（可差上百 bits），
+            # 恒等式门与 prune 决策在退化状态失真（4-bit exhaustive
+            # certificate 暴露，005 §十）。
+            E_R = R1
+            D = 0.0
+            Y = 0.0
+        else:
+            E_R = 0.0
+            ref = next((a for a in pl._tpl[i][z1] if a[0] == r_max), None)
+            # B/C 区都计算 per-branch counterfactual E[R(X2)|X1]：C 区用于
+            # Q_prog 的 conditional refinement；B 区第二包虽不可行，但
+            # counterfactual 是 tower 恒等式 E[E[R(X2)|X1]] = E[R(X2)] 的审计
+            # 对象（003 §五：B 区 gap=E[Y] 需要 per-branch 独立验证，不能只做
+            # 边际代数自洽）。A 区保持 E_R=0（probe 唯一可行，无对照物；
+            # g0_chk 语义依赖它）。
+            if ref is not None and region in ("B", "C"):
+                lp1 = _logp(om1)
+                lq1 = _logq(om1)
+                for (m2, lp0c, lp1c) in ref[3]:
+                    w2 = _w(lp1, lq1, lp1c, lp0c)
+                    z2 = z_code_b(r_max, m2)
+                    om2 = om1 + pl._llr_i[i][z2] - pl._llr_i[i][z1]
+                    E_R += w2 * r_dual(om2, rho, eta)
+            D = R1 - E_R
+            Y = D - d2
         branches.append((w1, x1, om1, R1, E_R, D, Y))
     wsum = sum(br[0] for br in branches)
     E_R_sum = sum(br[0] * br[4] for br in branches) / wsum
@@ -664,16 +678,25 @@ def main():
     out("")
     out("## 0. MITM 精确 8-bit 全融合参考（002 §七，替代 continuous 近似）")
     out("")
+    out("> **P_D,max 口径（005 §九）**：LLR 全融合统计 Ω 在量化消息下是**离散**"
+        "的，严格 Neyman–Pearson optimum 允许在 threshold atom 上随机化"
+        "（δ(Ω=η)=1 w.p. γ）以用满剩余 false-alarm budget；本 runner 的 "
+        "`pd_max_at_alpha` 用确定性阈值 bisection（Ω>η、P_FA≤α）——因此这里"
+        "报告的是 **P_D,max^det-thr**（deterministic-threshold achievable "
+        "reference），不是严格 randomized-NP P_D,max。对 8-bit（65536 support"
+        " 密集）二者数值差极小；论文措辞按 005 §九：不写裸 “maximum "
+        "achievable” 而不说明 det-thr。")
+    out("")
     pfa8, pmd8 = full_fusion_ref_mitm(model4, quants8, 8)
     pfa4, pmd4 = full_fusion_ref_mitm(model4, quants4, 4)
     eta8, pd8, pmd8v = pd_max_at_alpha(pfa8, pmd8, ALPHA)
     eta4, pd4, pmd4v = pd_max_at_alpha(pfa4, pmd4, ALPHA)
     BETA8 = 1.0 - pd8 + EPS_D
     BETA4 = 1.0 - pd4 + EPS_D
-    out(f"- 8-bit（MITM，65536+65536 support）：P_D,max^8b(0.05) = {pd8:.4f}（η*="
-        f"{eta8:.4f}）→ matched 目标 P_MD ≤ {BETA8:.4f}")
-    out(f"- 4-bit（MITM）：P_D,max^4b(0.05) = {pd4:.4f}（η*={eta4:.4f}）→ "
-        f"matched 目标 P_MD ≤ {BETA4:.4f}")
+    out(f"- 8-bit（MITM，65536+65536 support）：P_D,max^det-thr,8b(0.05) = "
+        f"{pd8:.4f}（η*={eta8:.4f}）→ matched 目标 P_MD ≤ {BETA8:.4f}")
+    out(f"- 4-bit（MITM）：P_D,max^det-thr,4b(0.05) = {pd4:.4f}（η*={eta4:.4f}）"
+        f"→ matched 目标 P_MD ≤ {BETA4:.4f}")
     out("")
     # 002 §二：显式 primal 可行构造
     out("## 0.1 π_full 显式可行构造（002 §二：matched 的 primal feasibility 证明）")
