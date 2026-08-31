@@ -792,6 +792,45 @@ BIT LOSS / MATCHED-QoS UNRESOLVED（B0.6-r：D8/POTS 的 QoS 从未被认证，m
       经 (b0',κ') 合成进入 memo Q-key（T60；跨组合无陈旧缓存）；世界侧参数
       （Δγ 换 planner 实例、ρ 只改采样）不进决策 memo。
     报告：`report/MVS-C_C5_report.md`（FULL 2783s）、`report/smoke/…`。
+  - **011 纵向收敛（advice/011.md，四阶段、不新增模块）**：
+    - **P0 — GPE 的 全局 Depth-2 修正（011 §二-§六）**：旧 `_cond_refine_q`
+      只枚举**同一 UAV** 更高 precision（self-refinement），而 SystemModel §24
+      的 O-PEF-2 第二步 `min_b` 定义在**全局可行动作空间** A(X',h')（任意
+      UAV、任意 precision；且 **s==r_max 不再 terminal**，最高精度 UAV 后仍
+      可请求其他 UAV）。修正后（`_cond_refine_q_global` + `gpe_decision_global`
+      在 run_mvsc03e.py；het 版 `gpe_het_decision_global` 在 run_mvsc04.py，
+      q1_het 作第二步 primitive）精确实现：
+        Q_2(a|x,h) = Q_1(a|x,h) − E[Δ_all(X',h−c_a)]，Δ_all=[R(X')−min_b Q_1(b|X')]_+
+        G_switch = E[Δ_all − Δ_self]（跨 UAV switch 的严格增益，Δ_all≥Δ_self）
+      并实现 **exact-prune + B&B**（011 §六：c_b≥R(X') 的候选整支剔除、
+      排序后 c_b≥V_best 整段跳过——非启发式，不改变 min）。
+    - **P0.5 — C5 mismatch fidelity 修正（011 §七）**：旧 pruning_fidelity
+      把 model 的 om 同时喂给 true planner（同 message index 在 model/true
+      量化器对应不同物理 LLR 区间、且 Ω_model(x)≠Ω_true(x)）。修正：
+      **冻结 deploy partition B^deploy=B^model**（quantizer 加
+      `bounds_override`），同 cells 重算 true PMF/LLR ⇒
+      Ω_true(x)=log(π1/π0)+Σ ℓ_i,true(m_i)（`pl_frozen.omega(x)`），再比
+      g_model(x,Ω_model) vs g_true(x,Ω_true)（严格的同-message-space 保真度）。
+    - **P1 — C4 link 物理映射（011 §八；单独做、不与 Depth-2 混跑）**：
+      抽象 q 线性映射 → **物理链路模型** `link_params_physical`：
+        Γ_i^c,dB = Γ_min + q_i(Γ_max−Γ_min)；R_i = W·log2(1+Γ_i^c)；
+        κ_i = B_unit/R_i；**b0,i 独立于 payload rate**（不强迫 setup 与
+      payload 用同一 q 映射）。本阶段只落地函数与独立入口，FULL 单独跑。
+    - **Gate 协议（011 §十）**：先跑 **6 个机制统计**（P(Δ_all>0)、E[Δ_all]、
+      E[Δ_self]、G_switch=E[Δ_all−Δ_self]、P(j*≠i)、action-change rate）于
+      冻结 θ̂ 的 on-policy 状态；**G_switch>0 才跑 FULL matched-QoS**，否则
+      如实报告 self/global 未激活（GPE 维持 ≡ Myopic，不浪费 FULL）。
+    - **Gate 实证裁决（011 §十二，smoke audit 40 世界 × 94 决策状态，
+      1303 候选）**：P(Δ_all>0)=**0.3407**、E[Δ_all]=**6.0412** bits、
+      E[Δ_self]=**0.3781** bits ⇒ **G_switch=5.6631>0（PASS）**；
+      **P(j*≠i)=0.9716**（97% 的 continuation argmin 落在**其他 UAV**——
+      跨 UAV switch 激活）、action-change rate=**0.5000** ⇒ **011 §十
+      Gate 通过 ⇒ FULL matched-QoS 已启动**（C3e FULL global-D2 与
+      C4 het global-D2；数值待 FULL 完成后补入报告）。
+    - **回归 T61-T64**（test_regressions.py，全套件 PASS）：T61 global D2
+      精确恒等式 Q2=Q1−E[Δ_all]（<1e-9）+G_switch≥0；T62 gate 统计自洽
+      （G_switch≥0、P∈[0,1]）；T63 exact-prune B&B 不减 min（B&B vs 全枚举
+      <1e-9）；T64 冻结 partition 同 cells 上 true LLR≠model LLR（PMF 归一）。
   - **B1**（fading/packet errors）仍最后；
   **论文四 Gate（001 §二十七，经 002 §三 修正为 D1/D2）**：A 数学正确性 /
   B 机制必要性（Phase-FG<Direct8 且 <Static Progressive）/ C 通信现实性

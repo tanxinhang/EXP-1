@@ -246,6 +246,325 @@ def _cond_refine_q(pl, x, om, i, s, conts, rho, eta, memo=None,
     return Q_cond, all_stop_best
 
 
+# ---------------------------------------------------------------------------
+# P0 (011 §二-§六)：真正 SystemModel §24 Depth-2 —— global feasible-action
+# continuation（`_cond_refine_q_global`）+ 生成度量分解
+# ---------------------------------------------------------------------------
+def global_messages(pl, x, om, h, rho, eta, b0_arr=None, kappa_arr=None,
+                    levels=None):
+    """A(X',h') 全局候选（011 §二）：所有 UAV j 的所有可行 u>r_j（含跨 UAV
+    switch，且**取消 s=r_max⇒terminal**：任意 UAV 到最高精度后第二步仍可
+    请求其他 UAV）。返回 [ (cb, j, u) ] 按 cb 升序（011 §六 B&B 前提）。"""
+    lv = pl.levels if levels is None else levels
+    b0a = [BH] * pl.N if b0_arr is None else b0_arr
+    ka = [1.0] * pl.N if kappa_arr is None else kappa_arr
+    zs = pl.decode(int(x))
+    out = []
+    for j in range(pl.N):
+        zj = zs[j]
+        rj, _ = z_decode_b(zj)
+        if rj >= pl.r_max:
+            continue
+        for u in lv:
+            if u <= rj:
+                continue
+            cb = b0a[j] + ka[j] * (u - rj)
+            if cb > h + 1e-9:
+                continue
+            out.append((cb, j, u))
+    out.sort(key=lambda t: t[0])
+    return out
+
+
+def _cond_refine_q_global(pl, x, om, i, s, h, rho, eta, memo=None,
+                          b0_arr=None, kappa_arr=None, q1fn=None,
+                          return_stats=False):
+    """SystemModel §24 真 Depth-2（011 §二-§六）：
+
+        Q_2(a|x,h) = c_a + E_{X'|x,a}[ min{ R(X'), min_{b∈A(X',h')} Q_1(b|X') } ]
+
+    A(X',h') = {(j, r_j→u): u>r_j, c_{j,u} ≤ h'},  h' = h − c_a  —— **全局**
+    （不再限于同一 UAV 的 t>s；s=r_max 也不 terminal，第二步可跨 UAV）。
+
+    Q_1(b|X') = c_b + E[R(X'')|X',b]  （one-step，q1fn/q1_fast）。
+
+    精确分解（011 §三/§四）：
+        Q_2(a) = Q_1(a) − E[Δ_all(X',h')],   Δ_all = [R(X')−min_b Q_1(b|X')]_+
+        Δ_self = [R(X')−min_{b∈A_self} Q_1(b|X')]_+（A_self = 同 UAV {(i,t):t>s}）
+        G_switch = E[Δ_all − Δ_self]（011 §四：跨 UAV switch 的严格增益）。
+
+    严格剪枝（011 §六）：
+        (a) c_b ≥ R(X') ⇒ Q_1(b) ≥ c_b ≥ R(X') ⇒ 不可能优于 STOP ⇒ exact prune
+            （不展开 E[R|X',b]，直接剔除该候选对 min 的贡献）；
+        (b) 候选按 c_b 升序；一旦 c_b ≥ V_best（当前 min Q_1 上界），后续全部
+            不可能更低 ⇒ 整段跳过（B&B，非启发式）。
+
+    return_stats=True 时返回 (Q_2, stats)，stats 含 E[Δ_all]/E[Δ_self]/
+    G_switch/P(Δ_all>0)/P(j*≠i)/n_exact_prune/n_bb_prune/Q1_self/Q2_eqdev。
+    """
+    if b0_arr is None:
+        b0i, kappai = BH, 1.0
+        b0t = (BH,) * pl.N
+        kat = (1.0,) * pl.N
+    else:
+        b0i, kappai = float(b0_arr[i]), float(kappa_arr[i])
+        b0t = tuple(float(v) for v in b0_arr)
+        kat = tuple(float(v) for v in kappa_arr)
+    b0a = b0t
+    ka = kat
+    zi = (x // pl.powers[i]) % BASE_B
+    r, _ = z_decode_b(zi)
+    c_a = b0i + kappai * (s - r)
+    if q1fn is None:
+        q1fn = q1_fast
+    # ---- memo（011 §六：global Depth-2 复杂度在现有 GPEMemo 内解决）----
+    # Q 层 key：决策侧参数全含（rho/eta/b0_arr/kappa_arr/h）——P0 教训延续；
+    # 结构层 key：(x,i,s)，只缓存 (w1, om1) 传播（om 由 x 决定，与 rho/eta 无关）。
+    qkey = (int(x), int(i), int(s), float(rho), float(eta), b0t, kat,
+            float(h))
+    if memo is not None and qkey in memo.q:
+        return memo.q[qkey]
+    # 结构层复用（若已缓存且 om 一致）
+    skey = (int(x), int(i), int(s))
+    struct = None
+    if memo is not None:
+        struct = memo.struct.get(skey)
+        if struct is not None and abs(struct["om"] - om) > 1e-9:
+            struct = None
+    tpl_i = pl._tpl[i][zi]
+    prog_tpl = next((a for a in tpl_i if a[0] == s), None)
+    if prog_tpl is None or c_a > h + 1e-9:
+        # 退化：probe 不可行或模板缺失 → one-step 语义
+        q1_ = q1fn(pl, x, om, i, s, rho, eta)
+        return ((q1_, True) if not return_stats
+                else (q1_, {"E_Δ_all": 0.0, "E_Δ_self": 0.0, "G_switch": 0.0,
+                            "P_Δ_all": 0.0, "P_jstar_ne_i": 0.0,
+                            "n_exact_prune": 0, "n_bb_prune": 0,
+                            "Q2_dev": 0.0}))
+    lp = -math.log1p(math.exp(-om))
+    lq = -math.log1p(math.exp(om))
+    h1 = h - c_a
+    E_min = 0.0        # E[min{R(X'), min_b Q1}]
+    E_R = 0.0          # E[R(X')]（→ Q_1(a)）
+    wsum = 0.0
+    E_Δ_all = 0.0
+    E_Δ_self = 0.0
+    n_Δ_all_pos = 0
+    n_jstar_ne_i = 0
+    n_exact = 0
+    n_bb = 0
+    n_chk = 0
+    for (m1, lp0c1, lp1c1) in prog_tpl[3]:
+        w1 = _w(lp, lq, lp1c1, lp0c1)
+        z1 = z_code_b(s, m1)
+        om1 = om + pl._llr_i[i][z1] - pl._llr_i[i][zi]
+        x1 = x + (z1 - zi) * pl.powers[i]
+        R1 = r_rho(om1, rho, eta)
+        wsum += w1
+        E_R += w1 * R1
+        # A(X', h1) 全局候选（含 self 与 cross；跨 UAV switch）
+        cands_global = global_messages(pl, x1, om1, h1, rho, eta,
+                                       b0_arr, kappa_arr)
+        cands_self = [(cb, j, u) for (cb, j, u) in cands_global
+                      if j == i]
+        # (a) exact prune：c_b ≥ R1 ⇒ Q_1(b) ≥ R1 ⇒ 不可能优于 STOP
+        keep_g = []
+        for (cb, j, u) in cands_global:
+            if cb >= R1 - 1e-12:
+                n_exact += 1
+                continue
+            keep_g.append((cb, j, u))
+        keep_s = []
+        for (cb, j, u) in cands_self:
+            if cb >= R1 - 1e-12:
+                n_exact += 1
+                continue
+            keep_s.append((cb, j, u))
+        # (b) B&B：按 c_b 升序，c_b ≥ V_best 后整段跳过
+        def scan_min_Q1(keep):
+            V = float("inf")
+            n_eval = 0
+            jstar = -1
+            ustar = -1
+            n_bb_local = 0
+            for (cb, j, u) in keep:          # 已按 cb 升序
+                if cb >= V - 1e-12:          # 不可能更低 ⇒ 后续全跳过
+                    n_bb_local += 1
+                    break
+                q = q1fn(pl, x1, om1, j, u, rho, eta)
+                n_eval += 1
+                if q < V:
+                    V = q
+                    jstar, ustar = j, u
+            return V, jstar, ustar, n_bb_local
+        Vg, jg, _ug, nbb_g = scan_min_Q1(keep_g)   # min_b∈A(X',h') Q_1
+        Vs, js, _us, nbb_s = scan_min_Q1(keep_s)   # min_b∈A_self Q_1
+        n_bb += nbb_g + nbb_s                       # 011 §六 B&B 剪枝计数
+        if Vg == float("inf"):
+            Vg = R1
+        if Vs == float("inf"):
+            Vs = R1
+        D_all = max(R1 - Vg, 0.0)
+        D_self = max(R1 - Vs, 0.0)
+        E_Δ_all += w1 * D_all
+        E_Δ_self += w1 * D_self
+        if D_all > 0:
+            n_Δ_all_pos += 1
+        if jg != -1 and jg != i:
+            n_jstar_ne_i += 1
+        n_chk += 1
+        E_min += w1 * min(R1, Vg)
+    E_min /= wsum
+    E_R /= wsum
+    E_Δ_all /= wsum
+    E_Δ_self /= wsum
+    Q2 = c_a + E_min
+    Q1 = c_a + E_R
+    # 精确恒等式：Q_2 = Q_1 − E[Δ_all]（011 §三）
+    dev = abs(Q2 - (Q1 - E_Δ_all))
+    if not return_stats:
+        return Q2, True
+    stats = {
+        "E_Δ_all": E_Δ_all, "E_Δ_self": E_Δ_self,
+        "G_switch": E_Δ_all - E_Δ_self,
+        "P_Δ_all": (n_Δ_all_pos / n_chk) if n_chk else 0.0,
+        "P_jstar_ne_i": (n_jstar_ne_i / n_chk) if n_chk else 0.0,
+        "n_exact_prune": n_exact, "n_bb_prune": n_bb, "n_chk": n_chk,
+        "Q1": Q1, "Q2": Q2, "Q2_dev": dev,
+    }
+    return Q2, stats
+
+
+def gpe_decision_global(pl, x, om, h, rho, eta, memo=None, b0_arr=None,
+                        kappa_arr=None, q1fn=None, return_stats=False):
+    """GPE-EA **global Depth-2**（011 P0）：第一步候选 = full action set
+    A={(i,s)}（与 Myopic 相同动作空间）；Q 值用 `_cond_refine_q_global`
+    （第二步 min_b 在全局 A(X',h') 上，允许跨 UAV switch）。保留
+    `gpe_decision`（self-refinement）作 Phase-Envelope self 子问题解析机制。
+    return_stats=True 时聚合每个第一动作的机制统计（G_switch 等）。"""
+    cands = []
+    agg_E_Δ_all = 0.0
+    agg_E_Δ_self = 0.0
+    agg_G = 0.0
+    agg_n = 0
+    for i in range(pl.N):
+        zi = (x // pl.powers[i]) % BASE_B
+        r, _ = z_decode_b(zi)
+        if r >= pl.r_max:
+            continue
+        for s in pl.levels:
+            if s <= r:
+                continue
+            c_s = (BH if b0_arr is None else b0_arr[i]) \
+                + (1.0 if kappa_arr is None else kappa_arr[i]) * (s - r)
+            if c_s > h + 1e-9:
+                continue
+            Q2, st = _cond_refine_q_global(pl, x, om, i, s, h, rho, eta,
+                                           memo=memo, b0_arr=b0_arr,
+                                           kappa_arr=kappa_arr, q1fn=q1fn,
+                                           return_stats=True)
+            cands.append((Q2, ("ACT", i, "ANY", s)))
+            agg_n += 1
+            agg_E_Δ_all += st["E_Δ_all"]
+            agg_E_Δ_self += st["E_Δ_self"]
+            agg_G += st["G_switch"]
+    if not cands:
+        return ("STOP",), {}
+    best_q, best_a = min(cands, key=lambda t: t[0])
+    if r_rho(om, rho, eta) <= best_q:
+        return ("STOP",), {}
+    if not return_stats:
+        return best_a, {}
+    stats = {
+        "avail_actions": agg_n,
+        "E_Δ_all": agg_E_Δ_all / agg_n if agg_n else 0.0,
+        "E_Δ_self": agg_E_Δ_self / agg_n if agg_n else 0.0,
+        "G_switch": agg_G / agg_n if agg_n else 0.0,
+    }
+    return best_a, stats
+
+
+def global_depth2_mechanism_stats(pl, quants8, powers8, H_aud, L_aud, H,
+                                  theta=THETA_FROZEN, b0_arr=None,
+                                  kappa_arr=None, q1fn=None):
+    """011 §十 gate：6 个机制统计（冻结 θ̂，on-policy 可达状态）：
+
+      P(Δ_all>0)、E[Δ_all]、E[Δ_self]、G_switch=E[Δ_all−Δ_self]、
+      P(j*≠i)（第二步 argmin 的 UAV 与第一步不同）、action-change rate
+      （gpe_decision_global 的 argmin 动作 vs myopic 动作不同）。
+
+    每个决策状态的每个第一动作候选调 `_cond_refine_q_global(return_stats=True)`，
+    聚合（候选等权（受预算可行约束），分支由 w1 加权在 st 内完成）。
+
+    **Gate 判定（011 §十）**：G_switch>0 且 P(j*≠i)>0（或 action-change>0）
+    ⇒ 跨 UAV switch 机制激活 ⇒ 才跑 FULL matched-QoS；否则如实报告
+    self-refinement 未激活（GPE 维持 ≡ Myopic，011 §一 结论保持）。"""
+    if q1fn is None:
+        q1fn = q1_fast
+    rho, eta = theta
+    n_dec = n_act_change = 0
+    n_cand = 0
+    sum_dall = sum_dself = sum_pdall = sum_pjstar = 0.0
+    for e in range(len(H_aud)):
+        x, h, om = 0, float(H), 0.0
+        while True:
+            if h < 1e-9:
+                break
+            dec_g, _g = gpe_decision_global(pl, x, om, h, rho, eta,
+                                            b0_arr=b0_arr, kappa_arr=kappa_arr,
+                                            q1fn=q1fn)
+            dec_m, _m = c21.myopic_decision(pl, x, om, h, rho, eta)
+            n_dec += 1
+            if dec_g[0] != dec_m[0] or (dec_g[0] != "STOP"
+                                        and (dec_g[1], dec_g[3]) != (dec_m[1], dec_m[3])):
+                n_act_change += 1
+            # 收集全部第一动作候选的 continuation-gain 统计
+            for i in range(pl.N):
+                zi = (x // pl.powers[i]) % BASE_B
+                r, _ = z_decode_b(zi)
+                if r >= pl.r_max:
+                    continue
+                for s in pl.levels:
+                    if s <= r:
+                        continue
+                    c_s = (BH if b0_arr is None else float(b0_arr[i])) \
+                        + (1.0 if kappa_arr is None else float(kappa_arr[i])) * (s - r)
+                    if c_s > h + 1e-9:
+                        continue
+                    _q, st = _cond_refine_q_global(pl, x, om, i, s, h, rho, eta,
+                                                   b0_arr=b0_arr,
+                                                   kappa_arr=kappa_arr,
+                                                   q1fn=q1fn,
+                                                   return_stats=True)
+                    n_cand += 1
+                    sum_dall += st["E_Δ_all"]
+                    sum_dself += st["E_Δ_self"]
+                    sum_pdall += st["P_Δ_all"]
+                    sum_pjstar += st["P_jstar_ne_i"]
+            if dec_g[0] == "STOP":
+                break
+            i, _k, r2 = dec_g[1], dec_g[2], dec_g[3]
+            zi = (x // pl.powers[i]) % BASE_B
+            r_cur, _m = z_decode_b(zi)
+            c = BH + (r2 - r_cur)
+            m2 = int(quants8[i].cell_index(r2, float(L_aud[e][i])))
+            om2 = om + pl._llr_i[i][z_code_b(r2, m2)] - pl._llr_i[i][zi]
+            x += (z_code_b(r2, m2) - zi) * powers8[i]
+            h -= c
+            om = om2
+    n_cand = max(n_cand, 1)
+    ag = {
+        "n_decisions": n_dec, "n_candidates": n_cand,
+        "action_change_rate": (n_act_change / n_dec) if n_dec else 0.0,
+        "E_Δ_all": sum_dall / n_cand,
+        "E_Δ_self": sum_dself / n_cand,
+        "G_switch": (sum_dall - sum_dself) / n_cand,
+        "P_Δ_all_gt0": sum_pdall / n_cand,
+        "P_jstar_ne_i": sum_pjstar / n_cand,
+    }
+    return ag
+
+
 def gpe_decision(pl, x, om, h, rho, eta, memo=None):
     """GPE-EA（010 §八）：full action set A={(i,s): s>r_i, s∈levels}；probe
     s<r_max 用 conditional-refinement Q（certificate 认证全分支 STOP 最优时
@@ -611,25 +930,72 @@ def main():
     out("")
 
     # ------------------------------------------------------------ G2
-    out("## G2. Matched-action Gate：GPE-EA vs Myopic-All（010 §八/§十二）")
+    out("## G2. Matched-action Gate：GPE-EA(global Depth-2) vs Myopic-All"
+        "（011 P0：SystemModel §24 真 Depth-2）")
     out("")
-    out("> 两者 **相同 full action set** A={(i,s): s>r_i, s∈levels}、相同成本"
-        "模型、相同 QoS、相同 calibration/test worlds（paired CRN）——唯一"
-        "差别是 GPE-EA 对 probe 用 conditional-refinement Q（certificate 证明"
-        "全分支 STOP 最优时精确退化为 one-step）。separately calibrated（各自"
-        "28 网格选 θ̂）、fresh test、主 bit 认证 = paired EB UCB（G3），"
-        "Hoeffding sanity。")
+    out("> **011 §二/§三 P0 修正**：旧 GPE-EA（`gpe_decision`）的第二步 conts 只"
+        "枚举**同一 UAV** 更高精度（self-refinement continuation），而 "
+        "SystemModel §24 的 `min_b` 定义在 **A(X',h') 全局可行动作空间**上——"
+        "允许跨 UAV switch，且 UAV 到最高精度后**不终止**（仍可请求其他 UAV）。"
+        "本轮 Proposed 改用 **`gpe_decision_global`**（`_cond_refine_q_global`），"
+        "实现精确恒等式 Q_2(a|x,h)=Q_1(a|x,h)−E[Δ(X',h−c_a)]，Δ=[R(X')−"
+        "min_b Q_1(b|X')]_+；并实现 011 §六 的**严格剪枝**：c_b≥R(X') ⇒ "
+        "Q_1(b)≥R(X') 不可能优于 STOP（exact prune，不展开 E）；候选按 c_b "
+        "升序、c_b≥V_best 后整段跳过（B&B，非启发式）。旧 `gpe_decision` 保留"
+        "为 Phase-Envelope self-refinement 子问题解析机制（011 §五 重定位，不删）。")
     out("")
+    out("> **011 §十 gate 协议**：先跑 6 个机制统计（P(Δ_all>0)、E[Δ_all]、"
+        "E[Δ_self]、G_switch=E[Δ_all−Δ_self]、P(j*≠i)、action-change rate）"
+        "于冻结 θ̂ 的 on-policy 状态；**G_switch>0 才跑 FULL matched-QoS**；"
+        "否则如实报告 self-refinement 未激活（GPE 维持 ≡ Myopic，不浪费 FULL）。")
+    out("")
+    t_gate = time.time()
+    ag_stat = global_depth2_mechanism_stats(pl, quants8, powers8, H_aud,
+                                            L_aud, CAL_H, THETA_FROZEN)
+    out("### G2-gate：global Depth-2 机制统计（011 §三/§四/§十）")
+    out("")
+    out(f"- 决策状态：{ag_stat['n_decisions']}；候选 {ag_stat['n_candidates']}")
+    out(f"- **P(Δ_all>0)**={fmt(ag_stat['P_Δ_all_gt0'])}；"
+        f"**E[Δ_all]**={fmt(ag_stat['E_Δ_all'])} bits；"
+        f"**E[Δ_self]**={fmt(ag_stat['E_Δ_self'])} bits")
+    out(f"- **G_switch=E[Δ_all−Δ_self]**={fmt(ag_stat['G_switch'])}"
+        f"（011 §四：跨 UAV switch 的严格增益，≥0）")
+    out(f"- **P(j*≠i)**={fmt(ag_stat['P_jstar_ne_i'])}（第二步 argmin 的 UAV "
+        f"与第一步不同——跨 UAV switch 激活频率）")
+    out(f"- **action-change rate**={fmt(ag_stat['action_change_rate'])}"
+        f"（GPE-global 与 Myopic 的动作不同）")
+    gate_pass = (ag_stat["G_switch"] > 1e-6
+                 and (ag_stat["P_jstar_ne_i"] > 0.0
+                      or ag_stat["action_change_rate"] > 0.0))
+    gate_verdict = ("**PASS（跨 UAV switch 机制激活 ⇒ 跑 FULL matched-QoS）**"
+                    if gate_pass else
+                    "**NOT-ACTIVATED（self-refinement 未激活，GPE 维持 "
+                    "≡ Myopic；FULL 未跑，如实报告）**")
+    out(f"- **Gate 判定**：{gate_verdict}（{time.time()-t_gate:.1f}s）")
+    out("")
+    if not gate_pass:
+        out("> **011 §十 停止点**：G_switch≈0。当前注册刻度（N=8、8-bit、β=0.40）"
+            "下，第二步的 global continuation 相对 self-refinement 无严格增益——"
+            "这本身是机制审计结论（与 010 §一 的 action-change=0 一致）。"
+            "FULL matched-QoS 不跑；下一步按 011 §十一 进入 P0.5（C5 mismatch "
+            "fidelity）与 P1（C4 link 物理映射，单独跑）。")
+        out("")
+        out("> **注**：G2 以下基线数值（旧 self-Depth-2）保留在上版报告 "
+            "`MVS-C_C3e_report.md`（E[D]=0.0000，GPE≡Myopic）作对比记录。")
+        out("")
     memo_gpe = GPEMemo()
     methods = [
         ("GPE-EA (Proposed)",
          (lambda pl, x, om, h, rho, eta, memo=memo_gpe:
-             gpe_decision(pl, x, om, h, rho, eta, memo))),
+             gpe_decision_global(pl, x, om, h, rho, eta, memo=memo))),
         ("Myopic-All", c21.myopic_decision),
     ]
     t_cal = time.time()
     cal_res = {}
     for (nm, fn) in methods:
+        if not gate_pass:
+            cal_res[nm] = {"theta": None, "feasible": {}, "tables": {}}
+            continue
         ts, F, tables = calibrate_decide(pl, CAL_H, H_cal, L_cal, quants8,
                                          powers8, RHO_GRID, ETA_GRID, fn)
         cal_res[nm] = {"theta": ts, "feasible": F, "tables": tables}

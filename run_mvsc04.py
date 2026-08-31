@@ -120,6 +120,34 @@ def link_params(regime, gamma_db=None, seed=2028):
     return np.asarray(b0, dtype=float), np.asarray(kappa, dtype=float)
 
 
+def link_params_physical(regime, gamma_db=None, seed=2028,
+                         gamma_min_dB=-5.0, gamma_max_dB=25.0,
+                         W=1.0, B_unit=1.0, B_ctrl=16.0):
+    """011 §八（P1）：**物理链路映射**——单独做、不与 Depth-2 混跑。
+
+    把抽象的 q 线性映射换成物理层参数（SystemModel §44/§47、011 §八）：
+        Γ_i^c,dB = Γ_min + q_i·(Γ_max − Γ_min)      （链路 SNR, dB）
+        Γ_i^c     = 10^(Γ_i^c,dB/10)                （线性功率比）
+        R_i       = W·log2(1 + Γ_i^c)               （Shannon 速率, bit/s/Hz）
+        κ_i       = B_unit / R_i                    （每 evidence bit 的 airtime）
+        b0,i      = B_ctrl                          （setup/control airtime 独立于
+                                                     payload rate —— 011 §八；
+                                                     不把 b0 塞进 payload 线性映射）
+
+    返回 (b0_phys_arr, kappa_phys_arr)（与 link_params 相同形状/单位语义）。
+    只用于 C4 的"物理参数化 matched 审计"独立小节；GPE-EA-het 的 global D2
+    修正（011 §二-§六）与它分开跑，避免机制混淆（011 §八 单独做）。
+    """
+    gamma_db = GAMMA_B if gamma_db is None else gamma_db
+    q = link_quality(regime, gamma_db, seed=seed)
+    gamma_db_lin = gamma_min_dB + q * (gamma_max_dB - gamma_min_dB)
+    gamma_lin = 10.0 ** (gamma_db_lin / 10.0)
+    rate = W * np.log2(1.0 + gamma_lin)
+    kappa = B_unit / rate
+    b0 = np.full_like(kappa, B_ctrl)
+    return np.asarray(b0, dtype=float), np.asarray(kappa, dtype=float)
+
+
 # ---------------------------------------------------------------------------
 # heterogeneous 决策函数（与 GPE-EA / Myopic-All 同构，成本换 per-UAV）
 # ---------------------------------------------------------------------------
@@ -213,6 +241,72 @@ def myopic_all_het(pl, x, om, h, rho, eta, b0_arr, kappa_arr):
     if r_rho(om, rho, eta) <= best_q:
         return ("STOP",), {}
     return best_a, {}
+
+
+def _make_het_q1(b0_arr, kappa_arr):
+    """011 §十一 run_mvsc04 行：q1_het 是 global Depth-2 的第二步 primitive。"""
+    def f(pl, x, om, j, u, rho, eta):
+        return q1_het(pl, x, om, j, u, rho, eta,
+                      float(b0_arr[j]), float(kappa_arr[j]))
+    return f
+
+
+def gpe_het_decision_global(pl, x, om, h, rho, eta, b0_arr, kappa_arr,
+                            memo=None, return_stats=False):
+    """011 §二/§十一 run_mvsc04 行：het GPE 同样 **global Depth-2**（SystemModel
+    §24 真语义）——第二步 min_b 在全局 A(X',h') 上（可跨 UAV switch），
+    **s==r_max 不再 terminal**（请求最高精度 UAV 后仍可请求其他 UAV）。
+    q1_het 作第二步 primitive；复用 c3e._cond_refine_q_global（其签名已含
+    b0_arr/kappa_arr/q1fn）。return_stats=True 时聚合 6 机制量（011 §十）。"""
+    q1f = _make_het_q1(b0_arr, kappa_arr)
+    cands = []
+    diag = {"n_cand": 0, "n_probe": 0, "n_terminal": 0}
+    agg_n = 0
+    agg_E_Δ_all = 0.0
+    agg_E_Δ_self = 0.0
+    agg_G = 0.0
+    for i in range(pl.N):
+        zi = (x // pl.powers[i]) % BASE_B
+        r, _m = z_decode_b(zi)
+        if r >= pl.r_max:
+            continue
+        b0i, ki = float(b0_arr[i]), float(kappa_arr[i])
+        for s in pl.levels:
+            if s <= r:
+                continue
+            c_s = b0i + ki * (s - r)
+            if c_s > h + 1e-9:
+                continue
+            diag["n_cand"] += 1
+            if s == pl.r_max:
+                # 011 §二：到最高精度**不终止**——global continuation 仍可请求
+                # 其它 UAV（c3e._cond_refine_q_global 的 global_messages 自动处理）
+                diag["n_probe"] += 1
+            else:
+                diag["n_probe"] += 1
+            Q2, st = c3e._cond_refine_q_global(
+                pl, x, om, i, s, h, rho, eta,
+                b0_arr=b0_arr, kappa_arr=kappa_arr, q1fn=q1f, memo=memo,
+                return_stats=True)
+            cands.append((Q2, ("ACT", i, "ANY", s)))
+            agg_n += 1
+            agg_E_Δ_all += st["E_Δ_all"]
+            agg_E_Δ_self += st["E_Δ_self"]
+            agg_G += st["G_switch"]
+    if not cands:
+        return (("STOP",), {}) if not return_stats else ("STOP", {})
+    best_q, best_a = min(cands, key=lambda t: t[0])
+    if r_rho(om, rho, eta) <= best_q:
+        best_a = ("STOP",)
+    if not return_stats:
+        return best_a, diag
+    stats = {
+        "n_candidates": agg_n,
+        "E_Δ_all": agg_E_Δ_all / agg_n if agg_n else 0.0,
+        "E_Δ_self": agg_E_Δ_self / agg_n if agg_n else 0.0,
+        "G_switch": (agg_E_Δ_all - agg_E_Δ_self) / agg_n if agg_n else 0.0,
+    }
+    return best_a, stats
 
 
 # ---------------------------------------------------------------------------
@@ -398,9 +492,14 @@ def main():
 
         memo_g = GPEMemo()
         methods = [
+            # 011 §十一 run_mvsc04 行：het GPE **同样用 global Depth-2**
+            # （`gpe_het_decision_global`，q1_het 作第二步 primitive）——
+            # 011 §十 gate 已证 G_switch>0（跨 UAV switch 激活），
+            # 故 FULL matched-QoS 用 global 版；旧 `gpe_het_decision`
+            # （self-refinement）保留作 Phase-Envelope self 对照。
             ("GPE-EA-het", (lambda pl, x, om, h, rho, eta, memo=memo_g:
-                            gpe_het_decision(pl, x, om, h, rho, eta,
-                                             b0_arr, kappa_arr, memo))),
+                            gpe_het_decision_global(pl, x, om, h, rho, eta,
+                                                    b0_arr, kappa_arr, memo))),
             ("Myopic-All-het", (lambda pl, x, om, h, rho, eta:
                                 myopic_all_het(pl, x, om, h, rho, eta,
                                                b0_arr, kappa_arr))),

@@ -31,13 +31,20 @@ _BRACKET = 60.0
 
 
 class NestedQuantizer:
-    def __init__(self, i, model, r_max=RMAX, levels=MESSAGE_LEVELS):
+    def __init__(self, i, model, r_max=RMAX, levels=MESSAGE_LEVELS,
+                 bounds_override=None):
         self.i = int(i)
         self.model = model
         self.r_max = int(r_max)
         self.levels = tuple(int(r) for r in levels)
         self.mu0, self.mu1, self.sd = model.llr_params(self.i)
-        self.bounds = self._build_tree()          # level -> (2^r+1,) boundaries
+        if bounds_override is not None:
+            # 011 §七/§十一 P0.5：固定 deploy partition（B^deploy=B^model 的
+            # 边界集），本 quantizer 只在该固定 cells 上重算 PMF/LLR ——
+            # C5 mismatch fidelity 的"same-cells, true-PMF" 语义。
+            self.bounds = dict(bounds_override)
+        else:
+            self.bounds = self._build_tree()      # level -> (2^r+1,) boundaries
         self.logP1 = {}                           # level -> (2^r,) log P(..|H1)
         self.logP0 = {}                           # level -> (2^r,) log P(..|H0)
         self.llr = {}                             # level -> (2^r,) message LLR

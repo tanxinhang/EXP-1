@@ -204,11 +204,29 @@ def arq_equivalence_check(pl, b0_list, kappa_list, p_succ, b_ctrl, H,
 # ---------------------------------------------------------------------------
 # (C) certificate-pruning 保真度审计（mismatch 下）
 # ---------------------------------------------------------------------------
-def pruning_fidelity(pl_model, pl_true, states, rho, eta, b0_arr, kappa_arr):
-    """对可达状态×(i,s,t)：model g（planner 用的）vs true g（对照 planner），
-    统计 model 剪枝在 true 分布下的假剪 (fp) 与漏剪 (fn)。"""
+def pruning_fidelity(pl_model, quant_model, mm_true, b0_arr, kappa_arr,
+                     states, rho, eta):
+    """011 §七（P0.5）修法：**冻结 deploy partition** B^deploy = B^model。
+
+    旧实现（010/C4 版）把 model 的 om 同时喂给 true planner——同一 message
+    index m 在 model/true quantizer 中对应的物理 LLR 区间不同，且 Ω_model(x)
+    ≠ Ω_true(x)，故 fp/fn 无严格物理语义。
+
+    修法：
+      qu_frozen[i] = NestedQuantizer(i, mm_true, bounds_override=
+                      quant_model[i].bounds)   —— 同 cells（model partition），
+                      PMF/LLR 用 **true** 模型重算 ⇒ ℓ_true^(r)(m)；
+      Ω_true(x) = log(π1/π0) + Σ_i ℓ_i,true(m_i)  =  pl_frozen.omega(x)；
+      比较 g_model(x, Ω_model) vs g_true(x, Ω_true)（严格同-message-space）。"""
+    qu_frozen = [NestedQuantizer(i, mm_true, r_max=pl_model.r_max,
+                                 levels=LEVELS,
+                                 bounds_override=quant_model[i].bounds)
+                 for i in range(len(quant_model))]
+    pl_frozen = SparsePlanner(qu_frozen, 1.0, 1.0, b_h=BH, cross_level=True,
+                              levels=LEVELS, delta_c=1.0)
     n_chk = n_pr = n_fp = n_fn = 0
     for (x, om) in states:
+        om_true = pl_frozen.omega(int(x))          # Ω_true（同 cells true LLR 和）
         for i in range(len(b0_arr)):
             zs = pl_model.decode(int(x))
             r, _ = z_decode_b(zs[i])
@@ -223,8 +241,8 @@ def pruning_fidelity(pl_model, pl_true, states, rho, eta, b0_arr, kappa_arr):
                     m_ = pb.general_phase_support(pl_model, x, om, i, s, t,
                                                   rho, eta, b0=b0_arr[i],
                                                   kappa=kappa_arr[i])
-                    tr_ = pb.general_phase_support(pl_true, x, om, i, s, t,
-                                                   rho, eta, b0=b0_arr[i],
+                    tr_ = pb.general_phase_support(pl_frozen, x, om_true, i, s,
+                                                   t, rho, eta, b0=b0_arr[i],
                                                    kappa=kappa_arr[i])
                     if m_ is None or tr_ is None:
                         continue
@@ -260,8 +278,11 @@ def _run_pair(pl, qu, b0e, ke, H_cal, L_cal, H_t96, L_t96, H_t48, L_t48,
               out, N_CAL, N_TEST):
     memo_g = GPEMemo()
     methods = [
-        ("GPE-EA-het", (lambda pl, x, om, h, rho, eta, m=memo_g, b=b0e, k=ke:
-                        c4.gpe_het_decision(pl, x, om, h, rho, eta, b, k, m))),
+        # 011 §十一 run_mvsc05 行：与 C4-G2 同构的 **global Depth-2**（q1_het
+        # 作第二步 primitive）——G2-gate 已证 G_switch>0，C5 协议与 C4 相同。
+        ("GPE-EA-het (global D2)",
+         (lambda pl, x, om, h, rho, eta, m=memo_g, b=b0e, k=ke:
+             c4.gpe_het_decision_global(pl, x, om, h, rho, eta, b, k, m))),
         ("Myopic-All-het", (lambda pl, x, om, h, rho, eta, b=b0e, k=ke:
                             myopic_all_het(pl, x, om, h, rho, eta, b, k))),
     ]
@@ -458,7 +479,10 @@ def main():
                   H_t48, L_t48, out, N_CAL, N_TEST)
         # 证书剪枝保真度审计（model planner vs true 对照 planner）
         states = c3e._reachable_states(pl_mod, qu_mod, pw, L_t96, N_AUD)
-        pf = pruning_fidelity(pl_mod, pl_true, states, 256.0, 0.8, b0e, ke)
+        # 011 §七 P0.5：冻结 model partition（qu_mod.bounds），同 cells 重算
+        # true PMF/LLR ⇒ Ω_true（pruning_fidelity 内部构造 pl_frozen）。
+        pf = pruning_fidelity(pl_mod, qu_mod, mm_true, b0e, ke, states,
+                              256.0, 0.8)
         out(f"- **剪枝保真度审计**（{len(states)} 状态）：检查 {pf['n_chk']}、"
             f"model 剪 {pf['n_model_prune']}、假剪 fp={pf['n_fp']}（"
             f"{fmt(pf['fp_rate'])}）、漏剪 fn={pf['n_fn']}（{fmt(pf['fn_rate'])}）")

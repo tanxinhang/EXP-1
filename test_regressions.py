@@ -1356,6 +1356,135 @@ def run():
           ok60,
           f"Q(base)={q60a:.1f} Q(p=0.8,b8)={q60b:.1f} memo_q={len(memo60.q)}")
 
+    # ================================================= 011 §十一 四类新回归
+    # T61: global Depth-2 精确恒等式 Q_2 = Q_1 − E[Δ_all]（011 §三）——
+    #      对随机可达状态×第一动作 (i,s)：`_cond_refine_q_global`(return_stats)
+    #      的 Q2_dev<1e-9；且 E[Δ_all]≥E[Δ_self]（011 §四）、G_switch≥0、
+    #      P_jstar_ne_i∈[0,1]。
+    print("\nT61 global D2 identity Q2=Q1−E[Δ_all] (011 §三)")
+    rng61 = np.random.default_rng(61001)
+    ok61 = True
+    n61 = 0
+    max_dev61 = 0.0
+    for _ in range(30):
+        x61 = int(rng61.integers(0, 3_000_000))
+        om61 = float(rng61.uniform(-8, 8))
+        cand61 = None
+        for i in range(4):
+            zi = (x61 // pl46.powers[i]) % c21.BASE_B
+            r, _ = c21.z_decode_b(zi)
+            for s in pl46.levels:
+                if s <= r:
+                    continue
+                if 16.0 + (s - r) > 96.0 + 1e-9:
+                    continue
+                cand61 = (i, s)
+                break
+            if cand61:
+                break
+        if cand61 is None:
+            continue
+        i61, s61 = cand61
+        _q61, st61 = c3e._cond_refine_q_global(
+            pl46, x61, om61, i61, s61, 96.0, 256.0, 0.8,
+            memo=c3e.GPEMemo(), return_stats=True)
+        n61 += 1
+        max_dev61 = max(max_dev61, st61["Q2_dev"])
+        ok61 &= (st61["Q2_dev"] < 1e-9
+                 and st61["E_Δ_all"] + 1e-9 >= st61["E_Δ_self"]
+                 and st61["G_switch"] >= -1e-9
+                 and 0.0 <= st61["P_jstar_ne_i"] <= 1.0)
+    check("T61 global D2 identity Q2=Q1−E[Δ_all] (+G_switch≥0)",
+          n61 > 0 and ok61, f"n={n61} max_dev={max_dev61:.1e}")
+
+    # T62: 011 §十 gate 统计自洽——global_depth2_mechanism_stats 的机制量
+    #      形成一致不变式（如实报告，不硬编码激活）：G_switch≥0、
+    #      P_Δ_all_gt0∈[0,1]、P_jstar_ne_i∈[0,1]、action_change_rate∈[0,1]。
+    print("\nT62 global D2 gate stats self-consistency (011 §十)")
+    ag62 = c3e.global_depth2_mechanism_stats(pl46, qu46, pw46,
+                                             H46[:40], L46[:40], 96.0,
+                                             theta=(256.0, 0.8))
+    ok62 = (ag62["G_switch"] >= -1e-9
+            and 0.0 <= ag62["P_Δ_all_gt0"] <= 1.0
+            and 0.0 <= ag62["P_jstar_ne_i"] <= 1.0
+            and 0.0 <= ag62["action_change_rate"] <= 1.0)
+    check("T62 gate stats self-consistent (G_switch≥0, P∈[0,1])",
+          ok62, f"G={ag62['G_switch']:.2e} Pj*={ag62['P_jstar_ne_i']:.2f}")
+
+    # T63: 011 §六 exact-prune B&B 不减 min、不改策略——相同状态下对比
+    #      full-enumeration min Q_1 与 "exact-prune(c_b≥R1 跳过) + B&B(c_b≥
+    #      V_best 后跳过)" 的 min Q_1：两者相等（差<1e-9）。
+    print("\nT63 exact-prune B&B does not change min Q_1 (011 §六)")
+    rng63 = np.random.default_rng(63001)
+    ok63 = True
+    n63 = 0
+    maxd63 = 0.0
+    for _ in range(25):
+        x63 = int(rng63.integers(0, 3_000_000))
+        om63 = float(rng63.uniform(-8, 8))
+        for i in range(4):
+            zi = (x63 // pl46.powers[i]) % c21.BASE_B
+            r, _ = c21.z_decode_b(zi)
+            for s in pl46.levels:
+                if s <= r:
+                    continue
+                if 16.0 + (s - r) > 96.0 + 1e-9:
+                    continue
+                h1 = 96.0 - (16.0 + (s - r))
+                min_full = float("inf")
+                acts = []
+                for j in range(4):
+                    zj = (x63 // pl46.powers[j]) % c21.BASE_B
+                    rj, _ = c21.z_decode_b(zj)
+                    for u in pl46.levels:
+                        if u <= rj:
+                            continue
+                        cb = 16.0 + (u - rj)
+                        if cb > h1 + 1e-9:
+                            continue
+                        q1 = c3e.q1_fast(pl46, x63, om63, j, u, 256.0, 0.8)
+                        min_full = min(min_full, q1)
+                        acts.append((cb, j, u, q1))
+                if min_full == float("inf"):
+                    continue
+                acts.sort(key=lambda t: t[0])
+                min_bb = float("inf")
+                for (cb, j, u, _q) in acts:
+                    if cb >= min_bb - 1e-12:    # B&B：c_b≥V_best 后跳过
+                        break
+                    min_bb = min(min_bb, _q)
+                n63 += 1
+                d = abs(min_full - min_bb)
+                maxd63 = max(maxd63, d)
+                ok63 &= (d < 1e-9)
+                break
+            if n63:
+                break
+    check("T63 B&B vs full-enum min Q_1 identical (<1e-9)",
+          n63 > 0 and ok63, f"n={n63} max_d={maxd63:.1e}")
+
+    # T64: 011 §七 same-message mismatch——冻结 model partition（bounds_override）
+    #      后重算 true PMF/LLR：同 cells（逐 level bounds 相同）但 Δγ≠0 ⇒
+    #      LLR 不同（同一 message index 的 true-PMF/LLR），PMF 仍归一。
+    print("\nT64 mismatch frozen-partition true PMF/LLR (011 §七)")
+    import run_mvsc05 as c5
+    mm_t64 = c21.GaussianDetectorModel(g2.GAMMA_B[:4], (0.5, 0.5))
+    qu_m64 = [c21.NestedQuantizer(i, mm_t64, r_max=8, levels=g2.LEVELS)
+              for i in range(4)]
+    mm_tru64 = c21.GaussianDetectorModel(np.asarray(g2.GAMMA_B[:4]) + 3.0)
+    qu_f64 = [c21.NestedQuantizer(i, mm_tru64, r_max=8, levels=g2.LEVELS,
+                                  bounds_override=qu_m64[i].bounds)
+              for i in range(4)]
+    ok64 = True
+    for i in range(4):
+        for lv in g2.LEVELS:
+            ok64 &= np.allclose(qu_f64[i].bounds[lv], qu_m64[i].bounds[lv])
+        ok64 &= qu_f64[i].check_pmf_normalization()
+        # Δγ≠0 ⇒ 同 cells（同 message index）上 true LLR ≠ model LLR
+        ok64 &= not np.allclose(qu_f64[i].llr[1], qu_m64[i].llr[1], atol=1e-6)
+    check("T64 frozen-partition true LLR≠model LLR (same cells, PMF ok)",
+          ok64, f"cells=2 per level; PMF-norm={ok64}")
+
     print(f"\n=== {len(PASS)} passed, {len(FAIL)} failed ({time.time()-t0:.0f}s) ===")
     for name, d in FAIL:
         print(f"  FAILED: {name} {d}")
